@@ -17,7 +17,10 @@ Not supported model gpt-5.5
 Verified on this machine on 2026-05-04:
 
 - Codex CLI was upgraded from `0.120.0` to `0.128.0`.
-- `codex exec --model gpt-5.5 ...` works and returns `CLI_GPT55_OK`.
+- `codex exec --model gpt-5.5 ...` routed through `openai` and returned
+  `CLI_GPT55_OK` before the account quota was exhausted. A later recheck hit
+  the ChatGPT Codex usage limit and reported retry availability on
+  2026-05-11 03:18.
 - `codex exec --profile mimo ...` works and returns `CLI_MIMO_OK`.
 - MiMo CLI tool execution works; a shell-tool test returned `CLI_MIMO_TOOL_OK`.
 - MiMo CLI image input works; `codex exec --profile mimo --image ...` returned
@@ -26,6 +29,12 @@ Verified on this machine on 2026-05-04:
   requests.
 - The Codex config includes the custom model catalog hook so MiMo can appear in
   Desktop GUI model lists.
+- The active GUI thread was repaired from `gpt-5.5/openai` to
+  `mimo-v2.5-pro/cmp_1777839123484_1` after Desktop tried to send MiMo through
+  the ChatGPT-account provider.
+- The active GUI thread repair was verified in `state_5.sqlite`; a full Codex
+  Desktop close/reopen is still required so the running GUI reloads that saved
+  provider binding.
 
 Non-blocking warnings still appear in some CLI runs from Codex plugin/analytics
 sync calls returning HTTP 403 from `chatgpt.com`. They did not block GPT-5.5,
@@ -252,6 +261,30 @@ Use this checklist when adding another provider/model:
 The most important rule: model slugs and provider ids are separate. A model can
 appear in the picker but still fail if an existing thread is bound to the wrong
 provider.
+
+## Desktop Model Switch Caveat
+
+Codex Desktop can show `Model changed from GPT-5.5 to MiMo-V2.5-Pro` while the
+running thread still uses the provider it started with. If that provider is a
+ChatGPT/OpenAI account provider, MiMo fails with:
+
+```text
+The 'mimo-v2.5-pro' model is not supported when using Codex with a ChatGPT account.
+```
+
+That is not a Xiaomi API failure. It means the model slug changed but the thread
+provider did not change to `cmp_1777839123484_1`.
+
+Use this helper to repair the current or target thread:
+
+```powershell
+node set-thread-model-provider.cjs --current --model mimo-v2.5-pro
+node set-thread-model-provider.cjs --current --model gpt-5.5
+node set-thread-model-provider.cjs --thread <thread-id> --model mimo-v2.5-pro
+```
+
+After repairing a live Desktop thread, fully close and reopen Codex Desktop so
+the running session reloads the saved provider binding.
 
 ## Known Caveats
 
