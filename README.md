@@ -35,6 +35,9 @@ Verified on this machine on 2026-05-04:
 - The active GUI thread repair was verified in `state_5.sqlite`; a full Codex
   Desktop close/reopen is still required so the running GUI reloads that saved
   provider binding.
+- A later GUI 400 was caused by the same active thread drifting back to
+  `gpt-5.5/cmp_1777839123484_1`. It was repaired to `gpt-5.5/openai` with
+  `node set-thread-model-provider.cjs --current --model gpt-5.5`.
 
 Non-blocking warnings still appear in some CLI runs from Codex plugin/analytics
 sync calls returning HTTP 403 from `chatgpt.com`. They did not block GPT-5.5,
