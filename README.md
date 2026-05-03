@@ -1,111 +1,102 @@
-# Codex Desktop + MiMo Repair Notes
+# Codex Model Patch Guide: GPT-5.5 + MiMo
 
-## Problem Summary
+This repo documents the local Codex Desktop/CLI patch used to keep OpenAI
+Codex models and Xiaomi MiMo available side by side.
 
-There were three separate issues mixed together:
-
-1. `gpt-5.5` was failing with:
+The main failure we fixed was model/provider drift: a `gpt-5.5` thread was
+still bound to the custom MiMo provider, so Codex sent `gpt-5.5` to Xiaomi and
+Xiaomi correctly rejected it with:
 
 ```text
-stream disconnected before completion: Mimo upstream returned HTTP 400:
-{ "error": { "code": "400", "message": "Not supported model gpt-5.5", "param": "Param Incorrect" } }
+Mimo upstream returned HTTP 400:
+Not supported model gpt-5.5
 ```
 
-2. `mimo-v2.5-pro` was not showing in the Codex Desktop GUI model picker.
-3. Image input for MiMo was not usable because the local proxy converted images into plain text placeholders.
+## Current Verified State
 
-## Root Causes
+Verified on this machine on 2026-05-04:
 
-### 1. Wrong provider binding in the thread database
+- Codex CLI was upgraded from `0.120.0` to `0.128.0`.
+- `codex exec --model gpt-5.5 ...` works and returns `CLI_GPT55_OK`.
+- `codex exec --profile mimo ...` works and returns `CLI_MIMO_OK`.
+- MiMo CLI tool execution works; a shell-tool test returned `CLI_MIMO_TOOL_OK`.
+- MiMo CLI image input works; `codex exec --profile mimo --image ...` returned
+  `CLI_MIMO_IMAGE_OK`.
+- The local MiMo proxy accepts direct text, image-shaped, and function-call
+  requests.
+- The Codex config includes the custom model catalog hook so MiMo can appear in
+  Desktop GUI model lists.
 
-Thread `019def7a-30c8-71f1-b952-b9c78722e126` had:
+Non-blocking warnings still appear in some CLI runs from Codex plugin/analytics
+sync calls returning HTTP 403 from `chatgpt.com`. They did not block GPT-5.5,
+MiMo text, MiMo tool use, or MiMo image tests.
 
-- `model = "gpt-5.5"`
-- `model_provider = "cmp_1777839123484_1"`
+## Important Files
 
-That meant the GUI was trying to send a GPT model slug through the MiMo proxy provider.
+Codex files outside this repo:
 
-### 2. MiMo catalog path was missing from `config.toml`
-
-The line below had been removed from `C:\Users\water\.codex\config.toml`:
-
-```toml
-model_catalog_json = "C:\\Users\\water\\.codex\\mimo-model-catalog.json"
-```
-
-Without that path, Codex Desktop only saw the stock model catalog.
-
-### 3. MiMo entry was missing from `models_cache.json`
-
-`C:\Users\water\.codex\mimo-model-catalog.json` still had the `mimo-v2.5-pro` model entry, but `C:\Users\water\.codex\models_cache.json` did not.
-
-That is why MiMo disappeared from the GUI picker.
-
-### 4. Proxy image handling was flattening multimodal input
-
-The local proxy at:
-
+- `C:\Users\water\.codex\config.toml`
+- `C:\Users\water\.codex\mimo-model-catalog.json`
+- `C:\Users\water\.codex\models_cache.json`
+- `C:\Users\water\.codex\state_5.sqlite`
 - `C:\Users\water\.codex\mimo-responses-proxy\mimo-responses-proxy.mjs`
 
-was converting:
+Helper files in this repo:
 
-- `input_image`
+- `repair-codex-mimo.cjs` repairs config, cache, and proxy image handling.
+- `update-gpt-providers.cjs` moves GPT threads away from the MiMo provider.
+- `update-thread-provider.cjs` repairs one known bad thread.
+- `check-db.mjs` lists recent Codex thread model/provider bindings.
 
-into:
+## Correct Routing
 
-- `[image: ...]`
+OpenAI Codex models must use the OpenAI provider:
 
-which removed the actual multimodal structure before sending requests upstream.
+```text
+gpt-5.5        -> openai
+gpt-5.4        -> openai
+gpt-5.4-mini   -> openai
+gpt-5.3-codex  -> openai
+gpt-5.2        -> openai
+```
 
-## What Was Fixed
+MiMo must use the local MiMo Responses proxy provider:
 
-### 1. Fixed GPT-5.5 provider routing
+```text
+mimo-v2.5-pro -> cmp_1777839123484_1
+```
 
-Updated the `threads` table in:
+The local provider points Codex at:
 
-- `C:\Users\water\.codex\state_5.sqlite`
+```text
+http://127.0.0.1:41418/v1
+```
 
-The broken row now correctly uses:
+The proxy forwards requests to Xiaomi's OpenAI-compatible Chat Completions
+endpoint:
 
-- `model = "gpt-5.5"`
-- `model_provider = "openai"`
+```text
+https://token-plan-sgp.xiaomimimo.com/v1/chat/completions
+```
 
-This restores real OpenAI routing for that GPT thread.
+## Config Shape
 
-### 2. Restored the custom model catalog hook
-
-Added back to `C:\Users\water\.codex\config.toml`:
+`C:\Users\water\.codex\config.toml` needs this top-level catalog line:
 
 ```toml
 model_catalog_json = "C:\\Users\\water\\.codex\\mimo-model-catalog.json"
 ```
 
-This allows Codex Desktop to load the custom MiMo model catalog again.
-
-### 3. Reinserted MiMo into the cache used by the GUI
-
-Copied the `mimo-v2.5-pro` entry from:
-
-- `C:\Users\water\.codex\mimo-model-catalog.json`
-
-into:
-
-- `C:\Users\water\.codex\models_cache.json`
-
-Current MiMo entry:
-
-- `slug = "mimo-v2.5-pro"`
-- `display_name = "MiMo-V2.5-Pro"`
-- `visibility = "list"`
-- `input_modalities = ["text", "image"]`
-- `supports_image_detail_original = true`
-- `context_window = 1048576`
-
-### 4. Aligned the MiMo profile with the GUI slug
-
-In `C:\Users\water\.codex\config.toml`:
+The MiMo provider/profile should look like this:
 
 ```toml
+[model_providers.cmp_1777839123484_1]
+name = "Mimo v2.5 Pro"
+base_url = "http://127.0.0.1:41418/v1"
+wire_api = "responses"
+request_max_retries = 1
+stream_idle_timeout_ms = 300000
+
 [profiles.mimo]
 model = "mimo-v2.5-pro"
 model_provider = "cmp_1777839123484_1"
@@ -113,114 +104,162 @@ model_context_window = 1048576
 model_max_output_tokens = 131072
 ```
 
-The proxy still maps GUI-facing slugs to the real upstream MiMo model:
+The context value is advertised in the model catalog. The large output cap is
+set on the Codex profile with `model_max_output_tokens = 131072`.
 
-- `mimo-v2.5-pro` -> `mimo-v2-pro`
+## Model Catalog Entry
 
-### 5. Fixed proxy image forwarding
+`mimo-model-catalog.json` and `models_cache.json` both need a visible MiMo
+entry. The key fields are:
 
-Patched `C:\Users\water\.codex\mimo-responses-proxy\mimo-responses-proxy.mjs` so message content can now be converted into structured chat parts.
-
-Important behavior change:
-
-- text stays text
-- images become `image_url` parts
-- files still become text placeholders
-
-This means the proxy no longer collapses image inputs into a plain string before forwarding upstream.
-
-## Verification Performed
-
-### Database verification
-
-Confirmed the previously broken thread now shows:
-
-- `id = "019def7a-30c8-71f1-b952-b9c78722e126"`
-- `model = "gpt-5.5"`
-- `model_provider = "openai"`
-
-Confirmed MiMo threads still show:
-
-- `model = "mimo-v2.5-pro"`
-- `model_provider = "cmp_1777839123484_1"`
-
-### Config verification
-
-Confirmed `config.toml` now starts with:
-
-```toml
-model_catalog_json = "C:\\Users\\water\\.codex\\mimo-model-catalog.json"
+```json
+{
+  "slug": "mimo-v2.5-pro",
+  "display_name": "MiMo-V2.5-Pro",
+  "visibility": "list",
+  "input_modalities": ["text", "image"],
+  "supports_image_detail_original": true,
+  "supports_parallel_tool_calls": true,
+  "context_window": 1048576
+}
 ```
 
-### Cache verification
+`model_catalog_json` is the durable Desktop hook. `models_cache.json` can still
+be refreshed or overwritten by Codex, so rerun the repair script if MiMo
+disappears from the GUI picker after a refresh.
 
-Confirmed `models_cache.json` now contains:
+## Proxy Requirements
 
-- `slug = "mimo-v2.5-pro"`
-- `display_name = "MiMo-V2.5-Pro"`
-- `visibility = "list"`
-- `input_modalities = ["text", "image"]`
-- `supports_image_detail_original = true`
+The MiMo proxy exists because Codex uses the Responses API shape while Xiaomi's
+endpoint is Chat Completions shaped.
 
-### Proxy verification
+The proxy must translate:
 
-Health check:
+- Responses `input_text` parts into Chat Completions text parts.
+- Responses `input_image` parts into Chat Completions `image_url` parts.
+- Responses tools/functions into Chat Completions tools.
+- Chat Completions tool calls back into Responses `function_call` output items.
 
-- `GET http://127.0.0.1:41418/v1/healthz`
-- result: proxy listening and targeting Xiaomi upstream
+The proxy should map the GUI-facing slug to Xiaomi's accepted upstream model:
 
-Direct request test through the local proxy:
+```text
+mimo-v2.5-pro -> mimo-v2-pro
+```
 
-- `model = "gpt-5.5"`
-- endpoint: `http://127.0.0.1:41418/v1/responses`
-- result: success
-- response model resolved to: `mimo-v2-pro`
-- no upstream `Not supported model gpt-5.5` error
+Do not alias OpenAI model names such as `gpt-5.5` to MiMo. If a GPT thread hits
+the MiMo proxy, the thread/provider binding is wrong and should be repaired.
 
-Image-path test through the local proxy:
+## Repair Commands
 
-- `model = "mimo-v2.5-pro"`
-- request contained both `input_text` and `input_image`
-- result: request completed successfully
-- result meaning: the proxy accepted structured image content and did not flatten it into a literal `[image: ...]` placeholder
+Run from this repo:
 
-## Important Current State
+```powershell
+node repair-codex-mimo.cjs
+node update-gpt-providers.cjs
+node check-db.mjs
+```
 
-### GPT threads
+Restart the proxy if needed:
 
-For the repaired GPT thread, selecting `gpt-5.5` now uses the real OpenAI provider again.
+```powershell
+$pids = (netstat -ano | Select-String ":41418").ToString() -replace '.*\s(\d+)$','$1' | Sort-Object -Unique
+$pids | ForEach-Object { Stop-Process -Id $_ -Force }
+Start-Process -WindowStyle Hidden -FilePath node -ArgumentList "C:\Users\water\.codex\mimo-responses-proxy\mimo-responses-proxy.mjs"
+```
 
-### MiMo threads
+Check proxy health:
 
-For MiMo threads, selecting `mimo-v2.5-pro` uses the local MiMo proxy provider.
+```powershell
+Invoke-RestMethod http://127.0.0.1:41418/v1/healthz
+```
 
-### GUI picker
+## CLI Verification
 
-The files are fixed, but Codex Desktop GUI usually needs a full restart before it reloads:
+GPT-5.5:
 
-- `config.toml`
-- `models_cache.json`
-- `mimo-model-catalog.json`
+```powershell
+codex exec --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox "Reply exactly CLI_GPT55_OK"
+```
 
-If MiMo still does not show in the GUI right away, fully close and reopen Codex Desktop.
+MiMo text:
 
-## Files Changed
+```powershell
+codex exec --profile mimo --dangerously-bypass-approvals-and-sandbox "Reply exactly CLI_MIMO_OK"
+```
 
-- `C:\Users\water\.codex\config.toml`
-- `C:\Users\water\.codex\models_cache.json`
-- `C:\Users\water\.codex\state_5.sqlite`
-- `C:\Users\water\.codex\mimo-responses-proxy\mimo-responses-proxy.mjs`
+MiMo tool use:
 
-## Backups Created
+```powershell
+codex exec --profile mimo --dangerously-bypass-approvals-and-sandbox "Use the shell tool to run Write-Output CLI_MIMO_TOOL_OK, then reply exactly CLI_MIMO_TOOL_OK."
+```
 
-- `C:\Users\water\.codex\config.toml.bak-fix-2026-05-03T21-52-19-751Z`
-- `C:\Users\water\.codex\models_cache.json.bak-fix-2026-05-03T21-52-19-766Z`
-- `C:\Users\water\.codex\mimo-responses-proxy\mimo-responses-proxy.mjs.bak-fix-2026-05-03T21-52-19-767Z`
+MiMo image:
 
-## Remaining Operational Step
+```powershell
+codex exec --profile mimo --image C:\path\to\image.png --dangerously-bypass-approvals-and-sandbox "An image is attached. Reply exactly CLI_MIMO_IMAGE_OK."
+```
 
-1. Close Codex Desktop completely.
-2. Open Codex Desktop again.
-3. Check the model picker for `MiMo-V2.5-Pro`.
-4. Open the repaired GPT thread and confirm `gpt-5.5` works without reconnect loops.
-5. Open or create a MiMo thread and confirm the image button is available.
+If GPT-5.5 fails with "requires a newer version of Codex", upgrade the CLI:
+
+```powershell
+npm install -g @openai/codex@latest
+codex --version
+```
+
+## GUI Verification
+
+1. Fully close Codex Desktop.
+2. Confirm the proxy is running on `127.0.0.1:41418`.
+3. Reopen Codex Desktop.
+4. Open the model picker.
+5. Confirm `gpt-5.5` is available and uses the OpenAI provider.
+6. Confirm `MiMo-V2.5-Pro` appears.
+7. Create a new MiMo thread and check that image upload is available.
+8. In old GPT threads, verify the thread is not still bound to
+   `cmp_1777839123484_1`.
+
+If the GUI reconnects five times and shows `Not supported model gpt-5.5`, the
+active thread is still routed to the MiMo provider. Run:
+
+```powershell
+node update-gpt-providers.cjs
+```
+
+Then restart Codex Desktop.
+
+## Adding Any Custom Model To Codex
+
+Use this checklist when adding another provider/model:
+
+1. Create or reuse a local proxy if the provider does not natively support the
+   exact Codex wire API.
+2. Add a `[model_providers.<id>]` entry in `config.toml`.
+3. Add a `[profiles.<name>]` entry pointing to the provider and model slug.
+4. Add the model to a custom catalog JSON.
+5. Point `model_catalog_json` at that custom catalog.
+6. Mirror the model entry into `models_cache.json` if the GUI does not show it.
+7. Set realistic `context_window` and `max_output_tokens`.
+8. Set `input_modalities` correctly, for example `["text", "image"]`.
+9. Implement tool-call translation in the proxy if the provider has a different
+   tool schema.
+10. Implement image translation in the proxy if the provider has a different
+    multimodal schema.
+11. Test CLI text, CLI tool calls, CLI image input, direct proxy calls, and GUI
+    model switching.
+12. Repair old thread rows in `state_5.sqlite` if they point to the wrong
+    provider.
+
+The most important rule: model slugs and provider ids are separate. A model can
+appear in the picker but still fail if an existing thread is bound to the wrong
+provider.
+
+## Known Caveats
+
+- Codex Desktop may need a full restart before it reloads the custom catalog.
+- `models_cache.json` can be overwritten by Codex refreshes.
+- Existing threads can preserve old provider ids even after `config.toml` is
+  fixed.
+- The current MiMo proxy is a compatibility bridge, so new Codex wire/API
+  changes may require proxy updates.
+- Direct Xiaomi API limits and model names can change; verify against the
+  Xiaomi platform before changing context or output values.
