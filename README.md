@@ -56,6 +56,8 @@ Codex files outside this repo:
 Helper files in this repo:
 
 - `repair-codex-mimo.cjs` repairs config, cache, and proxy image handling.
+- `switch-codex-gui-model.cjs` switches the current or latest GUI thread to
+  the matching model/provider pair.
 - `update-gpt-providers.cjs` moves GPT threads away from the MiMo provider.
 - `update-thread-provider.cjs` repairs one known bad thread.
 - `check-db.mjs` lists recent Codex thread model/provider bindings.
@@ -284,6 +286,13 @@ Use this helper to repair the current or target thread:
 node set-thread-model-provider.cjs --current --model mimo-v2.5-pro
 node set-thread-model-provider.cjs --current --model gpt-5.5
 node set-thread-model-provider.cjs --thread <thread-id> --model mimo-v2.5-pro
+```
+
+For day-to-day GUI switching, prefer the workspace-aware helper:
+
+```powershell
+node switch-codex-gui-model.cjs --model mimo-v2.5-pro
+node switch-codex-gui-model.cjs --model gpt-5.5
 ```
 
 After repairing a live Desktop thread, fully close and reopen Codex Desktop so
