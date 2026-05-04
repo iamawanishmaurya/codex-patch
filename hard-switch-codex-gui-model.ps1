@@ -9,11 +9,46 @@ param(
 
     [switch] $KillRunningSessions,
 
-    [switch] $AllProjectThreads
+    [switch] $AllProjectThreads,
+
+    [switch] $VerboseLogs
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function Write-Log {
+    param([string] $Message)
+
+    if ($VerboseLogs) {
+        Write-Host $Message
+    }
+}
+
+function Invoke-NodeScript {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]] $Arguments
+    )
+
+    if ($VerboseLogs) {
+        & node @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "node $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+        }
+        return
+    }
+
+    $output = & node @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        $details = ($output | Out-String).Trim()
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            $details = "No output was captured."
+        }
+        throw "node $($Arguments -join ' ') failed with exit code $exitCode`n$details"
+    }
+}
 
 function Get-CodexLaunchTarget {
     $startApp = Get-StartApps | Where-Object {
@@ -78,9 +113,9 @@ try {
     $launchTarget = $null
     if (-not $NoRestart) {
         $launchTarget = Get-CodexLaunchTarget
-        Write-Host "launch_target_kind=$($launchTarget.Kind)"
-        Write-Host "launch_target_value=$($launchTarget.Value)"
-        Write-Host "Stopping Codex Desktop before writing model/provider state..."
+        Write-Log "launch_target_kind=$($launchTarget.Kind)"
+        Write-Log "launch_target_value=$($launchTarget.Value)"
+        Write-Log "Stopping Codex Desktop before writing model/provider state..."
 
         $codexProcesses = Get-CimInstance Win32_Process | Where-Object {
             $_.Name -eq "Codex.exe" -or
@@ -104,13 +139,13 @@ try {
         Start-Sleep -Seconds 2
     }
 
-    node repair-codex-mimo.cjs
+    Invoke-NodeScript -Arguments @("repair-codex-mimo.cjs")
 
     if ($Model.StartsWith("gpt-")) {
-        node update-gpt-providers.cjs
+        Invoke-NodeScript -Arguments @("update-gpt-providers.cjs")
     }
 
-    node set-codex-default-model.cjs --model $Model
+    Invoke-NodeScript -Arguments @("set-codex-default-model.cjs", "--model", $Model)
 
     $switchArgs = @("switch-codex-gui-model.cjs", "--model", $Model)
     if ($Thread) {
@@ -119,7 +154,7 @@ try {
     if ($AllProjectThreads -and -not $Thread) {
         $switchArgs += "--all-project-threads"
     }
-    node @switchArgs
+    Invoke-NodeScript -Arguments $switchArgs
 
     if ($Model -eq "mimo-v2.5-pro") {
         try {
@@ -132,13 +167,13 @@ try {
     }
 
     if ($NoRestart) {
-        Write-Host "restart_skipped=true"
+        Write-Log "restart_skipped=true"
         return
     }
 
-    Write-Host "Restarting Codex Desktop so the provider binding reloads..."
+    Write-Log "Restarting Codex Desktop so the provider binding reloads..."
     Start-CodexDesktop -LaunchTarget $launchTarget
-    Write-Host "restarted=true"
+    Write-Log "restarted=true"
 } finally {
     Pop-Location
 }

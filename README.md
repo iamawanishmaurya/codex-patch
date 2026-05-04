@@ -38,8 +38,12 @@ Verified on this machine on 2026-05-04:
 - `mimo-v2.5-pro` is present in both the custom catalog and models cache with
   `["text", "image"]` input modalities and tool support enabled.
 - `codex-gui` sets the top-level default to the selected model/provider pair.
-  After the latest MiMo verification, the default is
-  `mimo-v2.5-pro/cmp_1777839123484_1`.
+  After the latest quiet-launcher verification, the default is
+  `gpt-5.5/openai`.
+- `codex-gui` now uses a colored quiet launcher with a spinner; raw repair and
+  thread-sync logs are hidden unless `-VerboseLogs` or `--verbose` is passed.
+- The installed `codex-gui.cmd` shim was verified in quiet spinner mode and in
+  explicit `--logs` mode with `--no-restart`.
 - The latest GUI project repair moved all 4 visible `mimo` project chats to
   `mimo-v2.5-pro/cmp_1777839123484_1`.
 - The GUI switch now updates both `state_5.sqlite` and each selected thread's
@@ -256,16 +260,27 @@ The easiest path is the terminal command:
 codex-gui
 ```
 
-`codex-gui` shows a menu, switches the selected model/provider pair, and
-launches a fresh Codex Desktop session. By default it switches all visible,
-non-`exec` chats in the current project together, so sessions in the same
-project do not keep mixed providers. It also accepts direct model aliases:
+`codex-gui` shows a colored menu, switches the selected model/provider pair,
+and launches a fresh Codex Desktop session. By default it switches visible
+non-`exec` GUI chats together, so sidebar groups do not keep mixed providers.
+It also accepts direct model aliases:
 
 ```powershell
 codex-gui gpt-5.5
 codex-gui mimo
 codex-gui mino
 ```
+
+Normal runs are quiet and show only the selected model, provider, spinner, and
+final success line. Use verbose mode only when you need the full diagnostic log:
+
+```powershell
+codex-gui mimo -VerboseLogs
+codex-gui gpt55 --verbose
+```
+
+The launcher also accepts CLI-style flags such as `--logs`, `--no-restart`,
+`--current-only`, `--thread <id>`, and `--plain`.
 
 Use `codex-gui mimo -CurrentOnly` only when you intentionally want to switch
 just the current/latest thread row.
@@ -383,6 +398,18 @@ node switch-codex-gui-model.cjs --model mimo-v2.5-pro
 node switch-codex-gui-model.cjs --model gpt-5.5
 ```
 
+For sidebar-wide GUI sync across all active project groups, use:
+
+```powershell
+node switch-codex-gui-model.cjs --model mimo-v2.5-pro --all-project-threads
+node switch-codex-gui-model.cjs --model gpt-5.5 --all-project-threads
+```
+
+Despite the historical flag name, `--all-project-threads` now updates all
+active non-`exec` Codex Desktop GUI threads across every project in the sidebar,
+not just the current working folder. Direct `exec` smoke-test rows are skipped
+because they are not sidebar chats.
+
 For real GUI usage across providers, use the hard switch helper instead:
 
 ```powershell
@@ -400,6 +427,27 @@ node watch-codex-provider-drift.cjs
 
 After repairing a live Desktop thread, fully close and reopen Codex Desktop so
 the running session reloads the saved provider binding.
+
+## Global Sync Verification
+
+The original switcher only synchronized threads whose `cwd` matched the current
+folder, which meant it touched 4 `mimo` threads and left other sidebar projects
+unchanged. The fixed switcher was verified against the local state DB:
+
+```text
+allGuiThreads=21
+mimoFolderThreads=4
+updated_rows=21
+updated_scope=all_gui_threads
+updated_thread_count=21
+```
+
+That means choosing GPT-5.5 now updates every active GUI chat to:
+
+```text
+model=gpt-5.5
+model_provider=openai
+```
 
 ## Known Caveats
 

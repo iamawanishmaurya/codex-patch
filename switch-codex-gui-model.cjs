@@ -20,6 +20,7 @@ function usage() {
       "Defaults:",
       "  Uses CODEX_THREAD_ID when available.",
       "  Otherwise repairs the latest thread for this workspace.",
+      "  --all-project-threads updates all non-exec Codex Desktop threads across every project.",
       "",
       "Examples:",
       "  node switch-codex-gui-model.cjs --model mimo-v2.5-pro --all-project-threads",
@@ -152,16 +153,11 @@ async function findTargetThread(db, requestedThreadId) {
 }
 
 async function findProjectThreads(db) {
-  const cwd = normalizePathForSql(process.cwd());
   const rows = await all(
     db,
     "SELECT id, title, model, model_provider, cwd, source, rollout_path FROM threads WHERE COALESCE(archived, 0) = 0 ORDER BY updated_at_ms DESC LIMIT 500",
   );
   return rows.filter((item) => {
-    if (!normalizePathForSql(item.cwd || "").includes(cwd)) {
-      return false;
-    }
-
     return item.source !== "exec";
   });
 }
@@ -285,7 +281,7 @@ async function main() {
       const rolloutSync = syncRolloutMetadataForThreads(projectThreads, model, provider);
 
       console.log(`updated_rows=${changes}`);
-      console.log(`updated_scope=project_threads`);
+      console.log(`updated_scope=all_gui_threads`);
       console.log(`updated_thread_count=${projectThreads.length}`);
       console.log(
         `updated_threads=${JSON.stringify(
