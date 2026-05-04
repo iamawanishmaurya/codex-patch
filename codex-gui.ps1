@@ -12,6 +12,8 @@ param(
 
     [switch] $List,
 
+    [switch] $Login,
+
     [Alias("ShowLogs", "Logs")]
     [switch] $VerboseLogs,
 
@@ -28,14 +30,24 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $HardSwitchScript = Join-Path $RepoRoot "hard-switch-codex-gui-model.ps1"
+$ModelCatalogPath = Join-Path $RepoRoot "codex-models.json"
+$ModelCatalog = Get-Content -LiteralPath $ModelCatalogPath -Raw | ConvertFrom-Json
 
+$ProviderOptions = @($ModelCatalog.providers)
 $ModelOptions = @(
-    [pscustomobject]@{ Key = "1"; Model = "gpt-5.5"; Label = "GPT-5.5"; Provider = "OpenAI"; Alias = "5.5, gpt55" },
-    [pscustomobject]@{ Key = "2"; Model = "gpt-5.4"; Label = "GPT-5.4"; Provider = "OpenAI"; Alias = "5.4, gpt54" },
-    [pscustomobject]@{ Key = "3"; Model = "gpt-5.4-mini"; Label = "GPT-5.4 Mini"; Provider = "OpenAI"; Alias = "mini" },
-    [pscustomobject]@{ Key = "4"; Model = "gpt-5.3-codex"; Label = "GPT-5.3 Codex"; Provider = "OpenAI"; Alias = "5.3, codex53" },
-    [pscustomobject]@{ Key = "5"; Model = "gpt-5.2"; Label = "GPT-5.2"; Provider = "OpenAI"; Alias = "5.2, gpt52" },
-    [pscustomobject]@{ Key = "6"; Model = "mimo-v2.5-pro"; Label = "MiMo-V2.5-Pro"; Provider = "Xiaomi proxy"; Alias = "mimo, mino, xiaomi" }
+    foreach ($provider in $ProviderOptions) {
+        foreach ($modelEntry in @($provider.models)) {
+            [pscustomobject]@{
+                Model = $modelEntry.slug
+                Label = $modelEntry.displayName
+                Provider = $provider.name
+                ProviderId = $provider.id
+                ProviderConfig = $provider
+                Alias = (@($modelEntry.aliases) -join ", ")
+                Description = $modelEntry.description
+            }
+        }
+    }
 )
 
 function Import-LongArguments {
@@ -64,7 +76,10 @@ function Import-LongArguments {
             "--kill-running-sessions" { $script:KillRunningSessions = $true; continue }
             "--current-only" { $script:CurrentOnly = $true; continue }
             "--list" { $script:List = $true; continue }
+            "--login" { $script:Login = $true; continue }
             "--help" { $script:Help = $true; continue }
+            "/login" { $script:Login = $true; continue }
+            "login" { $script:Login = $true; continue }
             "--thread" {
                 if ($i + 1 -ge $rawArgs.Count) {
                     throw "--thread requires a thread id."
@@ -126,6 +141,7 @@ function Show-Usage {
     Write-Host "  codex-gui <model-or-alias>"
     Write-Host "  codex-gui gpt-5.5"
     Write-Host "  codex-gui mimo"
+    Write-Host "  codex-gui /login"
     Write-Host ""
     Write-Host "Options:"
     Write-Host "  -NoRestart            Switch saved state only; do not relaunch Codex Desktop."
@@ -133,23 +149,49 @@ function Show-Usage {
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
     Write-Host "  -CurrentOnly          Switch only the current/latest thread, not all project chats."
     Write-Host "  -List                 Show model choices."
+    Write-Host "  -Login                Interactive provider/API setup and model picker."
     Write-Host "  -VerboseLogs          Show raw repair/switch logs."
     Write-Host "  -NoAnimation          Disable spinner animation."
     Write-Host ""
-    Write-Host "Double-dash aliases also work: --verbose, --logs, --no-restart, --thread."
+    Write-Host "Double-dash aliases also work: --login, --verbose, --logs, --no-restart, --thread."
+    Write-Host ""
+}
+
+function Show-ProviderMenu {
+    Write-Header
+    Write-Color "  Choose a provider:" Gray
+    Write-Host ""
+    for ($i = 0; $i -lt $ProviderOptions.Count; $i++) {
+        $provider = $ProviderOptions[$i]
+        $providerColor = if ($provider.id -eq "xiaomi") { [ConsoleColor]::Magenta } else { [ConsoleColor]::Cyan }
+        Write-Color ("  {0}. " -f ($i + 1)) DarkGray -NoNewline
+        Write-Color ("{0,-18}" -f $provider.name) $providerColor -NoNewline
+        Write-Color (" {0}" -f $provider.description) DarkGray
+    }
     Write-Host ""
 }
 
 function Show-ModelMenu {
-    Write-Header
-    Write-Color "  Choose the model to launch:" Gray
-    Write-Host ""
-    foreach ($option in $ModelOptions) {
-        $modelColor = if ($option.Model -eq "mimo-v2.5-pro") { [ConsoleColor]::Magenta } else { [ConsoleColor]::Cyan }
-        Write-Color ("  {0}. " -f $option.Key) DarkGray -NoNewline
-        Write-Color ("{0,-17}" -f $option.Label) $modelColor -NoNewline
-        Write-Color (" {0,-13}" -f $option.Provider) DarkGray -NoNewline
-        Write-Color (" aliases: {0}" -f $option.Alias) DarkYellow
+    param([object] $Provider)
+
+    if (-not $Provider) {
+        Show-ProviderMenu
+        foreach ($provider in $ProviderOptions) {
+            Show-ModelMenu -Provider $provider
+        }
+        return
+    }
+
+    Write-Color ("  {0} models:" -f $Provider.name) Gray
+    $models = @($Provider.models)
+    for ($i = 0; $i -lt $models.Count; $i++) {
+        $modelEntry = $models[$i]
+        $modelColor = if ($Provider.id -eq "xiaomi") { [ConsoleColor]::Magenta } else { [ConsoleColor]::Cyan }
+        $aliases = @($modelEntry.aliases) -join ", "
+        Write-Color ("  {0}. " -f ($i + 1)) DarkGray -NoNewline
+        Write-Color ("{0,-18}" -f $modelEntry.displayName) $modelColor -NoNewline
+        Write-Color (" {0,-17}" -f $modelEntry.slug) DarkGray -NoNewline
+        Write-Color (" aliases: {0}" -f $aliases) DarkYellow
     }
     Write-Host ""
 }
@@ -160,6 +202,25 @@ function Get-ModelOption {
     return $ModelOptions | Where-Object { $_.Model -eq $ModelName } | Select-Object -First 1
 }
 
+function Resolve-Provider {
+    param([string] $Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $normalized = $Value.Trim().ToLowerInvariant()
+    for ($i = 0; $i -lt $ProviderOptions.Count; $i++) {
+        $provider = $ProviderOptions[$i]
+        $aliases = @($provider.aliases)
+        if ($normalized -eq [string]($i + 1) -or $normalized -eq $provider.id -or $aliases -contains $normalized) {
+            return $provider
+        }
+    }
+
+    throw "Unknown provider choice: $Value"
+}
+
 function Resolve-Model {
     param([string] $Value)
 
@@ -168,21 +229,24 @@ function Resolve-Model {
     }
 
     $normalized = $Value.Trim().ToLowerInvariant()
-    switch -Regex ($normalized) {
-        "^(1|gpt-?5\.?5|gpt55|5\.5|55|openai|codex)$" { return "gpt-5.5" }
-        "^(2|gpt-?5\.?4|gpt54|5\.4|54)$" { return "gpt-5.4" }
-        "^(3|gpt-?5\.?4-mini|gpt54-mini|gpt-?mini|mini|5\.4-mini)$" { return "gpt-5.4-mini" }
-        "^(4|gpt-?5\.?3-codex|gpt53|codex53|5\.3|53)$" { return "gpt-5.3-codex" }
-        "^(5|gpt-?5\.?2|gpt52|5\.2|52)$" { return "gpt-5.2" }
-        "^(6|mimo|mino|xiaomi|mimo-v2\.5-pro|mimo-v2-pro)$" { return "mimo-v2.5-pro" }
-        default { throw "Unknown model choice: $Value" }
+    foreach ($option in $ModelOptions) {
+        $aliases = @($option.ProviderConfig.aliases) + @($option.Alias -split ",\s*")
+        if (
+            $normalized -eq $option.Model.ToLowerInvariant() -or
+            $normalized -eq $option.Label.ToLowerInvariant() -or
+            ($aliases | Where-Object { $_ -and $_.ToLowerInvariant() -eq $normalized } | Select-Object -First 1)
+        ) {
+            return $option.Model
+        }
     }
+
+    throw "Unknown model choice: $Value"
 }
 
-function Read-ModelChoice {
+function Read-ProviderChoice {
     while ($true) {
-        Show-ModelMenu
-        Write-Color "Enter number or model alias: " Yellow -NoNewline
+        Show-ProviderMenu
+        Write-Color "Enter number or provider alias: " Yellow -NoNewline
         $choice = [Console]::ReadLine()
         if ([string]::IsNullOrWhiteSpace($choice)) {
             $choice = "1"
@@ -193,11 +257,120 @@ function Read-ModelChoice {
         }
 
         try {
-            return Resolve-Model $choice
+            return Resolve-Provider $choice
         } catch {
             Write-Warning $_.Exception.Message
         }
     }
+}
+
+function Read-ModelChoice {
+    param([object] $Provider)
+
+    if (-not $Provider) {
+        $Provider = Read-ProviderChoice
+    }
+
+    while ($true) {
+        Write-Header
+        Show-ModelMenu -Provider $Provider
+        Write-Color "Enter number or model alias: " Yellow -NoNewline
+        $choice = [Console]::ReadLine()
+        if ([string]::IsNullOrWhiteSpace($choice)) {
+            $choice = "1"
+        }
+
+        if ($choice.Trim() -match "^(q|quit|exit)$") {
+            throw "Cancelled."
+        }
+
+        $models = @($Provider.models)
+        if ($choice.Trim() -match "^\d+$") {
+            $index = [int]$choice.Trim() - 1
+            if ($index -ge 0 -and $index -lt $models.Count) {
+                return $models[$index].slug
+            }
+        }
+
+        try {
+            $resolved = Resolve-Model $choice
+            $selected = Get-ModelOption $resolved
+            if ($selected.ProviderId -eq $Provider.id) {
+                return $resolved
+            }
+
+            Write-Warning "$resolved belongs to $($selected.Provider), not $($Provider.name)."
+        } catch {
+            Write-Warning $_.Exception.Message
+        }
+    }
+}
+
+function Test-ProviderModels {
+    param([object] $Provider)
+
+    if (-not $Provider.modelsEndpoint) {
+        return
+    }
+
+    $apiKeyName = $Provider.apiKeyEnv
+    $apiKey = [Environment]::GetEnvironmentVariable($apiKeyName, "User")
+    if (-not $apiKey) {
+        $apiKey = [Environment]::GetEnvironmentVariable($apiKeyName, "Process")
+    }
+    if (-not $apiKey) {
+        Write-Color ("  {0} is not set yet." -f $apiKeyName) Yellow
+        return
+    }
+
+    try {
+        $headers = @{ Authorization = "Bearer $apiKey" }
+        $response = Invoke-RestMethod -Uri $Provider.modelsEndpoint -Headers $headers -Method Get -TimeoutSec 20
+        $remoteModels = @($response.data | ForEach-Object { $_.id })
+        $configuredModels = @($Provider.models | ForEach-Object { $_.slug })
+        $activeModels = @($configuredModels | Where-Object { $remoteModels -contains $_ })
+        $unsupported = @($remoteModels | Where-Object { $configuredModels -notcontains $_ })
+
+        Write-Color ("  API connected. Codex-ready models: {0}" -f ($activeModels -join ", ")) Green
+        if ($unsupported.Count -gt 0) {
+            Write-Color ("  Other API models not used for Codex chat: {0}" -f ($unsupported -join ", ")) DarkGray
+        }
+    } catch {
+        Write-Color ("  API model check failed: {0}" -f $_.Exception.Message) Yellow
+    }
+}
+
+function Invoke-ProviderLogin {
+    Write-Header
+    Write-Color "  Provider login and model setup" Cyan
+    $provider = Read-ProviderChoice
+
+    if ($provider.requiresApiKey) {
+        $apiKeyName = $provider.apiKeyEnv
+        $existingKey = [Environment]::GetEnvironmentVariable($apiKeyName, "User")
+        if ($existingKey) {
+            Write-Color ("  Existing {0} found in the user environment." -f $apiKeyName) Green
+            Write-Color "  Press Enter to keep it, or paste a replacement key." DarkGray
+        } else {
+            Write-Color ("  Paste your {0} value for {1}." -f $apiKeyName, $provider.name) Yellow
+        }
+
+        Write-Color "API key: " Yellow -NoNewline
+        $apiKeyInput = [Console]::ReadLine()
+        if (-not [string]::IsNullOrWhiteSpace($apiKeyInput)) {
+            [Environment]::SetEnvironmentVariable($apiKeyName, $apiKeyInput.Trim(), "User")
+            [Environment]::SetEnvironmentVariable($apiKeyName, $apiKeyInput.Trim(), "Process")
+            Write-Color ("  Saved {0} to the user environment for future proxy launches." -f $apiKeyName) Green
+        } elseif (-not $existingKey) {
+            throw "$apiKeyName is required for $($provider.name)."
+        }
+
+        Test-ProviderModels -Provider $provider
+    } else {
+        Write-Color "  This provider uses your existing Codex Desktop sign-in." Green
+    }
+
+    return Read-ModelChoice -Provider $provider
 }
 
 function Invoke-HardSwitchWithSpinner {
@@ -270,7 +443,13 @@ if (-not (Test-Path -LiteralPath $HardSwitchScript)) {
     throw "Missing hard switch helper: $HardSwitchScript"
 }
 
-$SelectedModel = if ($Model) { Resolve-Model $Model } else { Read-ModelChoice }
+$SelectedModel = if ($Login) {
+    Invoke-ProviderLogin
+} elseif ($Model) {
+    Resolve-Model $Model
+} else {
+    Read-ModelChoice
+}
 $SelectedOption = Get-ModelOption $SelectedModel
 
 Write-Host ""

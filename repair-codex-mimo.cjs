@@ -1,244 +1,161 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("node:fs");
+const path = require("node:path");
+const { xiaomiProvider, xiaomiModelSlugs } = require("./codex-models.cjs");
 
-const base = 'C:/Users/water/.codex';
-const configPath = path.join(base, 'config.toml');
-const cachePath = path.join(base, 'models_cache.json');
-const catalogPath = path.join(base, 'mimo-model-catalog.json');
-const proxyPath = path.join(base, 'mimo-responses-proxy', 'mimo-responses-proxy.mjs');
+const base = "C:/Users/water/.codex";
+const configPath = path.join(base, "config.toml");
+const cachePath = path.join(base, "models_cache.json");
+const catalogPath = path.join(base, "mimo-model-catalog.json");
+const proxyPath = path.join(base, "mimo-responses-proxy", "mimo-responses-proxy.mjs");
 
 function backup(file) {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupPath = `${file}.bak-fix-${stamp}`;
   fs.copyFileSync(file, backupPath);
   console.log(`backup=${backupPath}`);
 }
 
+function updateOrInsertModel(models, entry) {
+  const index = models.findIndex((model) => model.slug === entry.slug);
+  if (index >= 0) {
+    models[index] = entry;
+    return "updated";
+  }
+
+  models.unshift(entry);
+  return "inserted";
+}
+
+function cloneXiaomiCatalogEntry(template, model, provider) {
+  const entry = JSON.parse(JSON.stringify(template));
+  entry.slug = model.slug;
+  entry.display_name = model.displayName;
+  entry.description = model.description || template.description;
+  entry.input_modalities = model.supportsImages ? ["text", "image"] : ["text"];
+  entry.supports_image_detail_original = Boolean(model.supportsImages);
+  entry.model_context_window = model.contextWindow || provider.contextWindow || template.model_context_window;
+  entry.model_max_output_tokens =
+    model.maxOutputTokens || provider.maxOutputTokens || template.model_max_output_tokens;
+  entry.base_instructions = template.base_instructions || "You are MiMo, a coding agent powered by Xiaomi.";
+  return entry;
+}
+
+function ensureConfig() {
+  let config = fs.readFileSync(configPath, "utf8");
+  const modelCatalogLine = 'model_catalog_json = "C:\\\\Users\\\\water\\\\.codex\\\\mimo-model-catalog.json"';
+  if (!config.includes("model_catalog_json =")) {
+    config = `${modelCatalogLine}\n${config}`;
+  }
+
+  config = config.replace('[profiles.mimo]\nmodel = "mimo-v2-pro"', '[profiles.mimo]\nmodel = "mimo-v2.5-pro"');
+
+  const provider = xiaomiProvider();
+  for (const model of provider.models || []) {
+    const profileName = model.slug.replace(/\./g, "-");
+    const profileHeader = `[profiles.${profileName}]`;
+    if (!config.includes(profileHeader)) {
+      config += [
+        "",
+        profileHeader,
+        `model = "${model.slug}"`,
+        `model_provider = "${provider.codexProviderId}"`,
+        `model_context_window = ${model.contextWindow || provider.contextWindow}`,
+        `model_max_output_tokens = ${model.maxOutputTokens || provider.maxOutputTokens}`,
+        "",
+      ].join("\n");
+    }
+  }
+
+  fs.writeFileSync(configPath, config, "utf8");
+  console.log("config_updated=true");
+}
+
+function ensureCatalogAndCache() {
+  const provider = xiaomiProvider();
+  const catalog = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+  const cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+  catalog.models = Array.isArray(catalog.models) ? catalog.models : [];
+  cache.models = Array.isArray(cache.models) ? cache.models : [];
+
+  const template =
+    catalog.models.find((model) => model.slug === "mimo-v2.5-pro") ||
+    cache.models.find((model) => model.slug === "mimo-v2.5-pro");
+  if (!template) {
+    throw new Error("mimo-v2.5-pro template not found in catalog/cache");
+  }
+
+  const actions = [];
+  for (const model of provider.models || []) {
+    const entry = cloneXiaomiCatalogEntry(template, model, provider);
+    actions.push(`${model.slug}:catalog:${updateOrInsertModel(catalog.models, entry)}`);
+    actions.push(`${model.slug}:cache:${updateOrInsertModel(cache.models, entry)}`);
+  }
+
+  fs.writeFileSync(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  fs.writeFileSync(cachePath, `${JSON.stringify(cache, null, 2)}\n`, "utf8");
+  console.log(`models_cache_action=${actions.join(",")}`);
+  console.log("models_cache_updated=true");
+}
+
+function ensureProxy() {
+  const provider = xiaomiProvider();
+  let proxy = fs.readFileSync(proxyPath, "utf8");
+  const slugs = xiaomiModelSlugs();
+  const aliases = [];
+  for (const model of provider.models || []) {
+    aliases.push([model.slug, model.slug]);
+    for (const alias of model.aliases || []) {
+      aliases.push([alias, model.slug]);
+    }
+  }
+
+  proxy = proxy.replace(
+    /const DEFAULT_MODEL = process\.env\.MIMO_MODEL \|\| "[^"]+";/,
+    'const DEFAULT_MODEL = process.env.MIMO_MODEL || "mimo-v2.5-pro";',
+  );
+  proxy = proxy.replace(/const SUPPORTED_MODELS = new Set\(\[[\s\S]*?\]\);\s*/g, "");
+  proxy = proxy.replace(
+    /const MODEL_ALIASES = new Map\(\[[\s\S]*?\]\);/,
+    [
+      `const SUPPORTED_MODELS = new Set(${JSON.stringify(slugs, null, 2)});`,
+      `const MODEL_ALIASES = new Map(${JSON.stringify(aliases, null, 2)});`,
+    ].join("\n"),
+  );
+  proxy = proxy.replace(
+    /function resolveModel\(model\) \{[\s\S]*?\n\}/,
+    `function resolveModel(model) {
+  if (!model || typeof model !== "string") {
+    return DEFAULT_MODEL;
+  }
+
+  const resolved = MODEL_ALIASES.get(model.toLowerCase()) || MODEL_ALIASES.get(model) || model;
+  if (SUPPORTED_MODELS.has(resolved)) {
+    return resolved;
+  }
+
+  if (/^gpt-/i.test(resolved)) {
+    const err = new Error(\`OpenAI model \${resolved} was routed to the Xiaomi proxy. Switch provider to OpenAI.\`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return resolved;
+}`,
+  );
+  proxy = proxy.replace(
+    /data: \[\{ id: DEFAULT_MODEL, object: "model", created: nowSeconds\(\), owned_by: "mimo" \}\],/,
+    `data: Array.from(SUPPORTED_MODELS).map((id) => ({ id, object: "model", created: nowSeconds(), owned_by: "xiaomi" })),`,
+  );
+
+  fs.writeFileSync(proxyPath, proxy, "utf8");
+  console.log("proxy_updated=true");
+}
+
 backup(configPath);
 backup(cachePath);
+backup(catalogPath);
 backup(proxyPath);
 
-let config = fs.readFileSync(configPath, 'utf8');
-const modelCatalogLine = 'model_catalog_json = "C:\\\\Users\\\\water\\\\.codex\\\\mimo-model-catalog.json"';
-if (!config.includes('model_catalog_json =')) {
-  config = `${modelCatalogLine}\n${config}`;
-}
-config = config.replace('[profiles.mimo]\nmodel = "mimo-v2-pro"', '[profiles.mimo]\nmodel = "mimo-v2.5-pro"');
-fs.writeFileSync(configPath, config, 'utf8');
-console.log('config_updated=true');
-
-const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
-const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-const mimoEntry = (catalog.models || []).find((m) => m.slug === 'mimo-v2.5-pro');
-if (!mimoEntry) {
-  throw new Error('mimo-v2.5-pro not found in mimo-model-catalog.json');
-}
-const cacheModels = Array.isArray(cache.models) ? cache.models : [];
-const existingIndex = cacheModels.findIndex((m) => m.slug === 'mimo-v2.5-pro');
-if (existingIndex >= 0) {
-  cacheModels[existingIndex] = mimoEntry;
-  console.log('models_cache_action=updated');
-} else {
-  cacheModels.unshift(mimoEntry);
-  console.log('models_cache_action=inserted');
-}
-cache.models = cacheModels;
-fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2) + '\n', 'utf8');
-console.log('models_cache_updated=true');
-
-let proxy = fs.readFileSync(proxyPath, 'utf8');
-
-const oldBlock = `function stringifyContent(value) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(stringifyContent).filter(Boolean).join("\\n");
-  }
-
-  if (typeof value === "object") {
-    if (typeof value.text === "string") return value.text;
-    if (typeof value.input_text === "string") return value.input_text;
-    if (typeof value.output_text === "string") return value.output_text;
-    if (typeof value.refusal === "string") return value.refusal;
-    if (value.type === "input_text" || value.type === "output_text") {
-      return stringifyContent(value.text);
-    }
-    if (value.type === "input_image") {
-      return \`[image: \${value.image_url || value.file_id || "attached"}]\`;
-    }
-    if (value.type === "input_file") {
-      return \`[file: \${value.filename || value.file_id || "attached"}]\`;
-    }
-    if ("content" in value) {
-      return stringifyContent(value.content);
-    }
-  }
-
-  return JSON.stringify(value);
-}`;
-
-const newBlock = `function stringifyContent(value) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(stringifyContent).filter(Boolean).join("\\n");
-  }
-
-  if (typeof value === "object") {
-    if (typeof value.text === "string") return value.text;
-    if (typeof value.input_text === "string") return value.input_text;
-    if (typeof value.output_text === "string") return value.output_text;
-    if (typeof value.refusal === "string") return value.refusal;
-    if (value.type === "input_text" || value.type === "output_text") {
-      return stringifyContent(value.text);
-    }
-    if (value.type === "input_file") {
-      return \`[file: \${value.filename || value.file_id || "attached"}]\`;
-    }
-    if ("content" in value) {
-      return stringifyContent(value.content);
-    }
-  }
-
-  return JSON.stringify(value);
-}
-
-function convertContentParts(value) {
-  const parts = [];
-
-  function visit(node) {
-    if (node === null || node === undefined) {
-      return;
-    }
-
-    if (typeof node === "string") {
-      if (node) {
-        parts.push({ type: "text", text: node });
-      }
-      return;
-    }
-
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        visit(item);
-      }
-      return;
-    }
-
-    if (typeof node !== "object") {
-      parts.push({ type: "text", text: JSON.stringify(node) });
-      return;
-    }
-
-    if (node.type === "input_image") {
-      const url = node.image_url || node.file_id;
-      if (url) {
-        parts.push({
-          type: "image_url",
-          image_url: {
-            url,
-            detail: node.detail || "high",
-          },
-        });
-      }
-      return;
-    }
-
-    if (node.type === "input_text" || node.type === "output_text") {
-      visit(node.text);
-      return;
-    }
-
-    if (typeof node.text === "string") {
-      parts.push({ type: "text", text: node.text });
-      return;
-    }
-
-    if (typeof node.input_text === "string") {
-      parts.push({ type: "text", text: node.input_text });
-      return;
-    }
-
-    if (typeof node.output_text === "string") {
-      parts.push({ type: "text", text: node.output_text });
-      return;
-    }
-
-    if (typeof node.refusal === "string") {
-      parts.push({ type: "text", text: node.refusal });
-      return;
-    }
-
-    if (node.type === "input_file") {
-      parts.push({
-        type: "text",
-        text: \`[file: \${node.filename || node.file_id || "attached"}]\`,
-      });
-      return;
-    }
-
-    if ("content" in node) {
-      visit(node.content);
-      return;
-    }
-
-    parts.push({ type: "text", text: JSON.stringify(node) });
-  }
-
-  visit(value);
-  return parts;
-}`;
-
-if (!proxy.includes('function convertContentParts(value) {')) {
-  proxy = proxy.replace(oldBlock, newBlock);
-}
-
-const oldMessageBlock = `  if (item.type === "message" || item.role) {
-    const role = item.role === "tool" ? "user" : item.role || "user";
-    messages.push({
-      role,
-      content: stringifyContent(item.content),
-    });
-    return;
-  }
-
-  if (item.content) {
-    messages.push({
-      role: item.role || "user",
-      content: stringifyContent(item.content),
-    });
-  }`;
-
-const newMessageBlock = `  if (item.type === "message" || item.role) {
-    const role = item.role === "tool" ? "user" : item.role || "user";
-    const contentParts = convertContentParts(item.content);
-    messages.push({
-      role,
-      content: contentParts.length > 0 ? contentParts : stringifyContent(item.content),
-    });
-    return;
-  }
-
-  if (item.content) {
-    const contentParts = convertContentParts(item.content);
-    messages.push({
-      role: item.role || "user",
-      content: contentParts.length > 0 ? contentParts : stringifyContent(item.content),
-    });
-  }`;
-
-proxy = proxy.replace(oldMessageBlock, newMessageBlock);
-fs.writeFileSync(proxyPath, proxy, 'utf8');
-console.log('proxy_updated=true');
+ensureConfig();
+ensureCatalogAndCache();
+ensureProxy();

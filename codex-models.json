@@ -1,0 +1,94 @@
+{
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI Codex",
+      "codexProviderId": "openai",
+      "description": "Codex models through the signed-in ChatGPT/Codex account.",
+      "aliases": ["openai", "codex", "gpt"],
+      "requiresApiKey": false,
+      "models": [
+        {
+          "slug": "gpt-5.5",
+          "displayName": "GPT-5.5",
+          "aliases": ["5.5", "gpt55", "55", "codex"],
+          "description": "Frontier model for complex coding, research, and real-world work."
+        },
+        {
+          "slug": "gpt-5.4",
+          "displayName": "GPT-5.4",
+          "aliases": ["5.4", "gpt54", "54"],
+          "description": "Strong model for everyday coding."
+        },
+        {
+          "slug": "gpt-5.4-mini",
+          "displayName": "GPT-5.4 Mini",
+          "aliases": ["mini", "gpt-mini", "gpt54-mini", "5.4-mini"],
+          "description": "Small, fast, and cost-efficient model for simpler coding tasks."
+        },
+        {
+          "slug": "gpt-5.3-codex",
+          "displayName": "GPT-5.3 Codex",
+          "aliases": ["5.3", "gpt53", "codex53", "53"],
+          "description": "Coding-optimized model."
+        },
+        {
+          "slug": "gpt-5.2",
+          "displayName": "GPT-5.2",
+          "aliases": ["5.2", "gpt52", "52"],
+          "description": "Optimized for professional work and long-running agents."
+        }
+      ]
+    },
+    {
+      "id": "xiaomi",
+      "name": "Xiaomi MiMo API",
+      "codexProviderId": "cmp_1777839123484_1",
+      "description": "Xiaomi OpenAI-compatible API through the local Responses proxy.",
+      "aliases": ["xiaomi", "mimo", "mino"],
+      "requiresApiKey": true,
+      "apiKeyEnv": "MIMO_API_KEY",
+      "modelsEndpoint": "https://token-plan-sgp.xiaomimimo.com/v1/models",
+      "chatCompletionsEndpoint": "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
+      "proxyBaseUrl": "http://127.0.0.1:41418/v1",
+      "contextWindow": 1048576,
+      "maxOutputTokens": 131072,
+      "models": [
+        {
+          "slug": "mimo-v2.5-pro",
+          "displayName": "MiMo-V2.5-Pro",
+          "aliases": ["mimo", "mino", "xiaomi", "v2.5-pro", "25pro"],
+          "description": "Best Xiaomi MiMo coding model for large coding work.",
+          "supportsImages": true
+        },
+        {
+          "slug": "mimo-v2.5",
+          "displayName": "MiMo-V2.5",
+          "aliases": ["mimo25", "v2.5", "25"],
+          "description": "General MiMo 2.5 chat/coding model.",
+          "supportsImages": true
+        },
+        {
+          "slug": "mimo-v2-pro",
+          "displayName": "MiMo-V2-Pro",
+          "aliases": ["mimo2", "v2-pro", "2pro"],
+          "description": "MiMo 2 Pro chat/coding model.",
+          "supportsImages": true
+        },
+        {
+          "slug": "mimo-v2-omni",
+          "displayName": "MiMo-V2-Omni",
+          "aliases": ["omni", "mimo-omni", "v2-omni"],
+          "description": "MiMo omni chat/multimodal model.",
+          "supportsImages": true
+        }
+      ],
+      "unsupportedModels": [
+        "mimo-v2-tts",
+        "mimo-v2.5-tts",
+        "mimo-v2.5-tts-voiceclone",
+        "mimo-v2.5-tts-voicedesign"
+      ]
+    }
+  ]
+}

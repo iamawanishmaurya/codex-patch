@@ -1,6 +1,5 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2", "mimo-v2.5-pro")]
     [string] $Model,
 
     [string] $Thread,
@@ -16,6 +15,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ModelCatalogPath = Join-Path $RepoRoot "codex-models.json"
+$ModelCatalog = Get-Content -LiteralPath $ModelCatalogPath -Raw | ConvertFrom-Json
 
 function Write-Log {
     param([string] $Message)
@@ -48,6 +49,43 @@ function Invoke-NodeScript {
         }
         throw "node $($Arguments -join ' ') failed with exit code $exitCode`n$details"
     }
+}
+
+function Get-ProviderForModel {
+    param([string] $ModelName)
+
+    foreach ($provider in $ModelCatalog.providers) {
+        foreach ($modelEntry in $provider.models) {
+            if ($modelEntry.slug -eq $ModelName) {
+                return $provider
+            }
+        }
+    }
+
+    throw "Unknown model: $ModelName"
+}
+
+function Restart-MimoProxy {
+    $proxyScript = "C:\Users\water\.codex\mimo-responses-proxy\start-mimo-proxy.ps1"
+
+    Get-CimInstance Win32_Process | Where-Object {
+        $_.CommandLine -match "mimo-responses-proxy"
+    } | Where-Object {
+        $_.ProcessId -ne $PID
+    } | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    Start-Sleep -Milliseconds 500
+    Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $proxyScript
+    )
+    Start-Sleep -Seconds 2
+    Invoke-RestMethod -Uri "http://127.0.0.1:41418/v1/healthz" -TimeoutSec 5 | Out-Null
 }
 
 function Get-CodexLaunchTarget {
@@ -110,6 +148,7 @@ function Start-CodexDesktop {
 
 Push-Location $RepoRoot
 try {
+    $selectedProvider = Get-ProviderForModel -ModelName $Model
     $launchTarget = $null
     if (-not $NoRestart) {
         $launchTarget = Get-CodexLaunchTarget
@@ -141,7 +180,7 @@ try {
 
     Invoke-NodeScript -Arguments @("repair-codex-mimo.cjs")
 
-    if ($Model.StartsWith("gpt-")) {
+    if ($selectedProvider.id -eq "openai") {
         Invoke-NodeScript -Arguments @("update-gpt-providers.cjs")
     }
 
@@ -156,14 +195,8 @@ try {
     }
     Invoke-NodeScript -Arguments $switchArgs
 
-    if ($Model -eq "mimo-v2.5-pro") {
-        try {
-            Invoke-RestMethod -Uri "http://127.0.0.1:41418/v1/healthz" -TimeoutSec 3 | Out-Null
-        } catch {
-            Start-Process -WindowStyle Hidden -FilePath "node" -ArgumentList "C:\Users\water\.codex\mimo-responses-proxy\mimo-responses-proxy.mjs"
-            Start-Sleep -Seconds 2
-            Invoke-RestMethod -Uri "http://127.0.0.1:41418/v1/healthz" -TimeoutSec 5 | Out-Null
-        }
+    if ($selectedProvider.id -eq "xiaomi") {
+        Restart-MimoProxy
     }
 
     if ($NoRestart) {

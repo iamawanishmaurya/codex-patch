@@ -1,10 +1,8 @@
 const fs = require("node:fs");
+const { findModel, providerForModel, isProviderModel } = require("./codex-models.cjs");
 
 const CONFIG_PATH = "C:/Users/water/.codex/config.toml";
 const CATALOG_PATH = "C:\\\\Users\\\\water\\\\.codex\\\\mimo-model-catalog.json";
-const MIMO_PROVIDER = "cmp_1777839123484_1";
-const OPENAI_PROVIDER = "openai";
-const OPENAI_MODELS = new Set(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"]);
 
 function usage() {
   console.error(
@@ -16,6 +14,7 @@ function usage() {
       "Examples:",
       "  node set-codex-default-model.cjs --model gpt-5.5",
       "  node set-codex-default-model.cjs --model mimo-v2.5-pro",
+      "  node set-codex-default-model.cjs --model mimo-v2.5",
     ].join("\n"),
   );
 }
@@ -40,18 +39,6 @@ function parseArgs(argv) {
   }
 
   return args;
-}
-
-function providerForModel(model) {
-  if (model === "mimo-v2.5-pro") {
-    return MIMO_PROVIDER;
-  }
-
-  if (OPENAI_MODELS.has(model)) {
-    return OPENAI_PROVIDER;
-  }
-
-  throw new Error(`No provider mapping is known for model: ${model}`);
 }
 
 function splitTopLevel(config) {
@@ -91,9 +78,17 @@ function buildDefaultLines(model) {
   const provider = providerForModel(model);
   const lines = [`model = "${model}"`, `model_provider = "${provider}"`];
 
-  if (model === "mimo-v2.5-pro") {
-    lines.push("model_context_window = 1048576");
-    lines.push("model_max_output_tokens = 131072");
+  if (isProviderModel(model, "xiaomi")) {
+    const entry = findModel(model);
+    const providerConfig = entry.provider;
+    const contextWindow = entry.contextWindow || providerConfig.contextWindow;
+    const maxOutputTokens = entry.maxOutputTokens || providerConfig.maxOutputTokens;
+    if (contextWindow) {
+      lines.push(`model_context_window = ${contextWindow}`);
+    }
+    if (maxOutputTokens) {
+      lines.push(`model_max_output_tokens = ${maxOutputTokens}`);
+    }
   }
 
   return lines;

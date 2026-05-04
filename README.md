@@ -35,15 +35,28 @@ Verified on this machine on 2026-05-04:
   requests.
 - The Codex config includes the custom model catalog hook so MiMo can appear in
   Desktop GUI model lists.
-- `mimo-v2.5-pro` is present in both the custom catalog and models cache with
-  `["text", "image"]` input modalities and tool support enabled.
+- Xiaomi's `/v1/models` endpoint currently reports `mimo-v2-omni`,
+  `mimo-v2-pro`, `mimo-v2.5`, `mimo-v2.5-pro`, and TTS variants. The launcher
+  exposes the four Codex-usable chat/omni models and excludes TTS models from
+  Codex chat switching.
+- `mimo-v2.5-pro`, `mimo-v2.5`, `mimo-v2-pro`, and `mimo-v2-omni` are present
+  in both the custom catalog and models cache with `["text", "image"]`
+  modalities and tool support enabled.
 - `codex-gui` sets the top-level default to the selected model/provider pair.
-  After the latest quiet-launcher verification, the default is
-  `gpt-5.5/openai`.
+  After the latest multi-MiMo verification, the default is
+  `mimo-v2.5-pro/cmp_1777839123484_1`.
 - `codex-gui` now uses a colored quiet launcher with a spinner; raw repair and
   thread-sync logs are hidden unless `-VerboseLogs` or `--verbose` is passed.
+- `codex-gui /login` now provides an interactive provider/API setup and then a
+  provider-scoped model picker.
+- `/login` was verified with Xiaomi: it kept the saved `MIMO_API_KEY`, fetched
+  live Xiaomi models, showed the Xiaomi-only model list, and switched to
+  `mimo-v2-omni` in a no-restart test.
 - The installed `codex-gui.cmd` shim was verified in quiet spinner mode and in
   explicit `--logs` mode with `--no-restart`.
+- The local proxy `/v1/models` route now reports all four Codex-ready Xiaomi
+  models, and direct proxy tests confirmed `mimo-v2.5-pro` and `mimo-v2.5` are
+  forwarded as their selected upstream model slugs.
 - The latest GUI project repair moved all 4 visible `mimo` project chats to
   `mimo-v2.5-pro/cmp_1777839123484_1`.
 - The GUI switch now updates both `state_5.sqlite` and each selected thread's
@@ -55,7 +68,8 @@ Verified on this machine on 2026-05-04:
 - After the rollout metadata sync fix, MiMo CLI image input returned
   `MIMO_IMAGE_ROLLOUT_SYNC_OK`.
 - The saved thread database currently has no known GPT/MiMo provider
-  mismatches.
+  mismatches; the latest check covered 48 active known-model thread rows with
+  0 mismatches.
 - Earlier GUI 400s came from live Desktop sessions where the visible model slug
   changed but the in-memory provider did not. For GUI use, run the hard-switch
   helper and let it restart Desktop so the provider binding is reloaded.
@@ -76,6 +90,9 @@ Codex files outside this repo:
 
 Helper files in this repo:
 
+- `codex-models.json` is the shared provider/model catalog used by the
+  launcher and Node repair/switch helpers.
+- `codex-models.cjs` loads that shared catalog for Node scripts.
 - `codex-gui.ps1` provides the interactive `codex-gui` terminal command.
 - `install-codex-gui-alias.ps1` installs `codex-gui.cmd` into
   `C:\Users\water\bin` and adds that folder to the user PATH.
@@ -109,6 +126,9 @@ MiMo must use the local MiMo Responses proxy provider:
 
 ```text
 mimo-v2.5-pro -> cmp_1777839123484_1
+mimo-v2.5     -> cmp_1777839123484_1
+mimo-v2-pro   -> cmp_1777839123484_1
+mimo-v2-omni  -> cmp_1777839123484_1
 ```
 
 The local provider points Codex at:
@@ -269,7 +289,20 @@ It also accepts direct model aliases:
 codex-gui gpt-5.5
 codex-gui mimo
 codex-gui mino
+codex-gui mimo-v2.5
+codex-gui omni
 ```
+
+For the OpenClaude-style setup path, use `/login`:
+
+```powershell
+codex-gui /login
+```
+
+That flow first asks for a provider, then handles provider setup. OpenAI uses
+the existing Codex Desktop sign-in. Xiaomi asks for `MIMO_API_KEY` if it is not
+already saved, checks `https://token-plan-sgp.xiaomimimo.com/v1/models`, and
+then shows only Xiaomi MiMo models for the Xiaomi provider.
 
 Normal runs are quiet and show only the selected model, provider, spinner, and
 final success line. Use verbose mode only when you need the full diagnostic log:
@@ -348,22 +381,24 @@ Then run the GPT hard switch so the live Desktop session reloads OpenAI:
 
 Use this checklist when adding another provider/model:
 
-1. Create or reuse a local proxy if the provider does not natively support the
+1. Add the provider and model slugs to `codex-models.json`; this drives the
+   launcher menu, provider mapping, repair scripts, and drift watcher.
+2. Create or reuse a local proxy if the provider does not natively support the
    exact Codex wire API.
-2. Add a `[model_providers.<id>]` entry in `config.toml`.
-3. Add a `[profiles.<name>]` entry pointing to the provider and model slug.
-4. Add the model to a custom catalog JSON.
-5. Point `model_catalog_json` at that custom catalog.
-6. Mirror the model entry into `models_cache.json` if the GUI does not show it.
-7. Set realistic `context_window` and `max_output_tokens`.
-8. Set `input_modalities` correctly, for example `["text", "image"]`.
-9. Implement tool-call translation in the proxy if the provider has a different
+3. Add a `[model_providers.<id>]` entry in `config.toml`.
+4. Add a `[profiles.<name>]` entry pointing to the provider and model slug.
+5. Add the model to a custom catalog JSON.
+6. Point `model_catalog_json` at that custom catalog.
+7. Mirror the model entry into `models_cache.json` if the GUI does not show it.
+8. Set realistic `context_window` and `max_output_tokens`.
+9. Set `input_modalities` correctly, for example `["text", "image"]`.
+10. Implement tool-call translation in the proxy if the provider has a different
    tool schema.
-10. Implement image translation in the proxy if the provider has a different
+11. Implement image translation in the proxy if the provider has a different
     multimodal schema.
-11. Test CLI text, CLI tool calls, CLI image input, direct proxy calls, and GUI
+12. Test CLI text, CLI tool calls, CLI image input, direct proxy calls, and GUI
     model switching.
-12. Repair old thread rows in `state_5.sqlite` if they point to the wrong
+13. Repair old thread rows in `state_5.sqlite` if they point to the wrong
     provider.
 
 The most important rule: model slugs and provider ids are separate. A model can

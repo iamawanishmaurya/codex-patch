@@ -2,14 +2,12 @@ const { createRequire } = require("node:module");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { providerForModel } = require("./codex-models.cjs");
 
 const requireFromN8n = createRequire("C:/Users/water/AppData/Roaming/npm/node_modules/n8n/");
 const sqlite3 = requireFromN8n("sqlite3");
 
 const DB_PATH = "C:/Users/water/.codex/state_5.sqlite";
-const MIMO_PROVIDER = "cmp_1777839123484_1";
-const OPENAI_PROVIDER = "openai";
-const OPENAI_MODELS = new Set(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"]);
 
 function usage() {
   console.error(
@@ -64,18 +62,6 @@ function parseArgs(argv) {
   }
 
   return args;
-}
-
-function providerForModel(model) {
-  if (model === "mimo-v2.5-pro") {
-    return MIMO_PROVIDER;
-  }
-
-  if (OPENAI_MODELS.has(model)) {
-    return OPENAI_PROVIDER;
-  }
-
-  throw new Error(`No provider mapping is known for model: ${model}`);
 }
 
 function normalizePathForSql(value) {
