@@ -62,6 +62,9 @@ Codex files outside this repo:
 
 Helper files in this repo:
 
+- `codex-gui.ps1` provides the interactive `codex-gui` terminal command.
+- `install-codex-gui-alias.ps1` installs `codex-gui.cmd` into
+  `C:\Users\water\bin` and adds that folder to the user PATH.
 - `repair-codex-mimo.cjs` repairs config, cache, and proxy image handling.
 - `hard-switch-codex-gui-model.ps1` sets the requested GUI model/provider pair
   and restarts Codex Desktop so the running provider is reloaded.
@@ -234,6 +237,22 @@ codex --version
 ```
 
 ## GUI Verification
+
+The easiest path is the terminal command:
+
+```powershell
+.\install-codex-gui-alias.ps1
+codex-gui
+```
+
+`codex-gui` shows a menu, switches the selected model/provider pair, and
+launches a fresh Codex Desktop session. It also accepts direct model aliases:
+
+```powershell
+codex-gui gpt-5.5
+codex-gui mimo
+codex-gui mino
+```
 
 Codex Desktop 0.128 can change a visible model slug inside an already-running
 thread without changing that thread's provider. Use the hard switch helper for
