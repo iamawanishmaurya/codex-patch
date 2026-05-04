@@ -1,4 +1,6 @@
 const { createRequire } = require("node:module");
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 
 const requireFromN8n = createRequire("C:/Users/water/AppData/Roaming/npm/node_modules/n8n/");
 const sqlite3 = requireFromN8n("sqlite3");
@@ -12,7 +14,7 @@ function usage() {
   console.error(
     [
       "Usage:",
-      "  node switch-codex-gui-model.cjs --model <model> [--thread <thread-id>]",
+      "  node switch-codex-gui-model.cjs --model <model> [--thread <thread-id>] [--config-default]",
       "",
       "Defaults:",
       "  Uses CODEX_THREAD_ID when available.",
@@ -20,13 +22,17 @@ function usage() {
       "",
       "Examples:",
       "  node switch-codex-gui-model.cjs --model mimo-v2.5-pro",
-      "  node switch-codex-gui-model.cjs --model gpt-5.5",
+      "  node switch-codex-gui-model.cjs --model gpt-5.5 --config-default",
     ].join("\n"),
   );
 }
 
 function parseArgs(argv) {
-  const args = { model: null, threadId: process.env.CODEX_THREAD_ID || null };
+  const args = {
+    model: null,
+    threadId: process.env.CODEX_THREAD_ID || null,
+    configDefault: false,
+  };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -34,6 +40,8 @@ function parseArgs(argv) {
       args.model = argv[++i];
     } else if (arg === "--thread") {
       args.threadId = argv[++i];
+    } else if (arg === "--config-default") {
+      args.configDefault = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -88,6 +96,20 @@ function run(db, sql, params = []) {
   });
 }
 
+function setConfigDefault(model) {
+  const script = path.join(__dirname, "set-codex-default-model.cjs");
+  const result = spawnSync(process.execPath, [script, "--model", model], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `set_config_default_failed=${result.status}`);
+  }
+
+  return result.stdout.trim();
+}
+
 async function findTargetThread(db, requestedThreadId) {
   if (requestedThreadId) {
     const row = await get(db, "SELECT id, title, model, model_provider, cwd FROM threads WHERE id = ?", [
@@ -112,7 +134,7 @@ async function findTargetThread(db, requestedThreadId) {
 }
 
 async function main() {
-  const { model, threadId } = parseArgs(process.argv.slice(2));
+  const { model, threadId, configDefault } = parseArgs(process.argv.slice(2));
   const provider = providerForModel(model);
   const db = new sqlite3.Database(DB_PATH);
 
@@ -130,6 +152,9 @@ async function main() {
     console.log(`updated_rows=${changes}`);
     console.log(`before=${JSON.stringify(before)}`);
     console.log(`after=${JSON.stringify(after)}`);
+    if (configDefault) {
+      console.log(setConfigDefault(model));
+    }
     console.log(`next_step=Fully close and reopen Codex Desktop before retrying this GUI thread.`);
   } finally {
     db.close();

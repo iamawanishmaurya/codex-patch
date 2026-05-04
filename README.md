@@ -25,10 +25,22 @@ Verified on this machine on 2026-05-04:
 - MiMo CLI tool execution works; a shell-tool test returned `CLI_MIMO_TOOL_OK`.
 - MiMo CLI image input works; `codex exec --profile mimo --image ...` returned
   `CLI_MIMO_IMAGE_OK`.
+- After the hard-switch helper was added, GPT-5.5 CLI returned
+  `CLI_GPT55_AFTER_PATCH_OK`.
+- After the hard-switch helper was added, MiMo CLI returned
+  `CLI_MIMO_AFTER_PATCH_OK`.
+- After the hard-switch helper was added, MiMo CLI image input returned
+  `CLI_MIMO_IMAGE_AFTER_PATCH_OK`.
 - The local MiMo proxy accepts direct text, image-shaped, and function-call
   requests.
 - The Codex config includes the custom model catalog hook so MiMo can appear in
   Desktop GUI model lists.
+- `mimo-v2.5-pro` is present in both the custom catalog and models cache with
+  `["text", "image"]` input modalities and tool support enabled.
+- The current active GUI thread is saved as
+  `mimo-v2.5-pro/cmp_1777839123484_1`.
+- The top-level default is saved as `gpt-5.5/openai`, so new GPT sessions do
+  not get routed through the MiMo proxy.
 - The active GUI thread was repaired from `gpt-5.5/openai` to
   `mimo-v2.5-pro/cmp_1777839123484_1` after Desktop tried to send MiMo through
   the ChatGPT-account provider.
@@ -56,6 +68,10 @@ Codex files outside this repo:
 Helper files in this repo:
 
 - `repair-codex-mimo.cjs` repairs config, cache, and proxy image handling.
+- `hard-switch-codex-gui-model.ps1` sets the requested GUI model/provider pair
+  and restarts Codex Desktop so the running provider is reloaded.
+- `set-codex-default-model.cjs` changes the top-level Desktop default
+  model/provider pair in `config.toml`.
 - `switch-codex-gui-model.cjs` switches the current or latest GUI thread to
   the matching model/provider pair.
 - `watch-codex-provider-drift.cjs` continuously repairs saved thread rows when
@@ -224,15 +240,32 @@ codex --version
 
 ## GUI Verification
 
-1. Fully close Codex Desktop.
-2. Confirm the proxy is running on `127.0.0.1:41418`.
-3. Reopen Codex Desktop.
-4. Open the model picker.
-5. Confirm `gpt-5.5` is available and uses the OpenAI provider.
-6. Confirm `MiMo-V2.5-Pro` appears.
-7. Create a new MiMo thread and check that image upload is available.
-8. In old GPT threads, verify the thread is not still bound to
-   `cmp_1777839123484_1`.
+Codex Desktop 0.128 can change a visible model slug inside an already-running
+thread without changing that thread's provider. Use the hard switch helper for
+cross-provider changes:
+
+```powershell
+.\hard-switch-codex-gui-model.ps1 -Model mimo-v2.5-pro
+.\hard-switch-codex-gui-model.ps1 -Model gpt-5.5
+```
+
+Use `-NoRestart` only for a dry run. The restart is the important part for the
+GUI, because the live session keeps its provider in memory.
+
+After switching to MiMo:
+
+1. Confirm the proxy is running on `127.0.0.1:41418`.
+2. Reopen Codex Desktop.
+3. Open the repaired thread or create a new thread after the switch.
+4. Confirm `MiMo-V2.5-Pro` is selected.
+5. Send `Introduce yourself`.
+6. Attach an image and confirm the image button is available.
+
+After switching back to GPT:
+
+1. Run `.\hard-switch-codex-gui-model.ps1 -Model gpt-5.5`.
+2. Reopen Codex Desktop.
+3. Send a short prompt and confirm the logs show `provider=OpenAI`.
 
 If the GUI reconnects five times and shows `Not supported model gpt-5.5`, the
 active thread is still routed to the MiMo provider. Run:
@@ -241,7 +274,11 @@ active thread is still routed to the MiMo provider. Run:
 node update-gpt-providers.cjs
 ```
 
-Then restart Codex Desktop.
+Then run the GPT hard switch so the live Desktop session reloads OpenAI:
+
+```powershell
+.\hard-switch-codex-gui-model.ps1 -Model gpt-5.5
+```
 
 ## Adding Any Custom Model To Codex
 
@@ -282,7 +319,7 @@ The 'mimo-v2.5-pro' model is not supported when using Codex with a ChatGPT accou
 That is not a Xiaomi API failure. It means the model slug changed but the thread
 provider did not change to `cmp_1777839123484_1`.
 
-Use this helper to repair the current or target thread:
+Use these helpers to repair the current or target thread:
 
 ```powershell
 node set-thread-model-provider.cjs --current --model mimo-v2.5-pro
@@ -290,11 +327,18 @@ node set-thread-model-provider.cjs --current --model gpt-5.5
 node set-thread-model-provider.cjs --thread <thread-id> --model mimo-v2.5-pro
 ```
 
-For day-to-day GUI switching, prefer the workspace-aware helper:
+For saved-state repair without a restart, use the workspace-aware helper:
 
 ```powershell
 node switch-codex-gui-model.cjs --model mimo-v2.5-pro
 node switch-codex-gui-model.cjs --model gpt-5.5
+```
+
+For real GUI usage across providers, use the hard switch helper instead:
+
+```powershell
+.\hard-switch-codex-gui-model.ps1 -Model mimo-v2.5-pro
+.\hard-switch-codex-gui-model.ps1 -Model gpt-5.5
 ```
 
 If Desktop keeps writing bad pairings after GUI model switches, keep the watcher
