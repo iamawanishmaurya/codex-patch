@@ -246,13 +246,22 @@ codex-gui
 ```
 
 `codex-gui` shows a menu, switches the selected model/provider pair, and
-launches a fresh Codex Desktop session. It also accepts direct model aliases:
+launches a fresh Codex Desktop session. By default it switches all visible,
+non-`exec` chats in the current project together, so sessions in the same
+project do not keep mixed providers. It also accepts direct model aliases:
 
 ```powershell
 codex-gui gpt-5.5
 codex-gui mimo
 codex-gui mino
 ```
+
+Use `codex-gui mimo -CurrentOnly` only when you intentionally want to switch
+just the current/latest thread row.
+
+One-shot `codex exec ...` verification runs are stored with `source=exec`.
+Codex Desktop does not show those in the normal GUI chat list, so the
+project-wide switch intentionally targets visible non-`exec` project chats.
 
 The launcher uses the registered Windows app id from `Get-StartApps` instead
 of relying on direct `C:\Program Files\WindowsApps` directory access. That

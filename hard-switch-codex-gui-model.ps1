@@ -7,7 +7,9 @@ param(
 
     [switch] $NoRestart,
 
-    [switch] $KillRunningSessions
+    [switch] $KillRunningSessions,
+
+    [switch] $AllProjectThreads
 )
 
 $ErrorActionPreference = "Stop"
@@ -84,6 +86,9 @@ try {
     $switchArgs = @("switch-codex-gui-model.cjs", "--model", $Model)
     if ($Thread) {
         $switchArgs += @("--thread", $Thread)
+    }
+    if ($AllProjectThreads -and -not $Thread) {
+        $switchArgs += "--all-project-threads"
     }
     node @switchArgs
 

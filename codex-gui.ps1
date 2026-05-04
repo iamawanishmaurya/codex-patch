@@ -8,6 +8,8 @@ param(
 
     [switch] $KillRunningSessions,
 
+    [switch] $CurrentOnly,
+
     [switch] $List,
 
     [Alias("h", "?")]
@@ -39,6 +41,7 @@ function Show-Usage {
     Write-Host "  -NoRestart            Switch saved state only; do not relaunch Codex Desktop."
     Write-Host "  -KillRunningSessions  Also stop Codex resume/session helper processes."
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
+    Write-Host "  -CurrentOnly          Switch only the current/latest thread, not all project chats."
     Write-Host "  -List                 Show model choices."
     Write-Host ""
 }
@@ -120,6 +123,9 @@ if ($NoRestart) {
 }
 if ($KillRunningSessions) {
     $switchParams.KillRunningSessions = $true
+}
+if (-not $CurrentOnly -and -not $Thread) {
+    $switchParams.AllProjectThreads = $true
 }
 
 & $HardSwitchScript @switchParams

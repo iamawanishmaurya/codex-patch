@@ -14,14 +14,14 @@ function usage() {
   console.error(
     [
       "Usage:",
-      "  node switch-codex-gui-model.cjs --model <model> [--thread <thread-id>] [--config-default]",
+      "  node switch-codex-gui-model.cjs --model <model> [--thread <thread-id>] [--config-default] [--all-project-threads]",
       "",
       "Defaults:",
       "  Uses CODEX_THREAD_ID when available.",
       "  Otherwise repairs the latest thread for this workspace.",
       "",
       "Examples:",
-      "  node switch-codex-gui-model.cjs --model mimo-v2.5-pro",
+      "  node switch-codex-gui-model.cjs --model mimo-v2.5-pro --all-project-threads",
       "  node switch-codex-gui-model.cjs --model gpt-5.5 --config-default",
     ].join("\n"),
   );
@@ -31,7 +31,9 @@ function parseArgs(argv) {
   const args = {
     model: null,
     threadId: process.env.CODEX_THREAD_ID || null,
+    explicitThread: false,
     configDefault: false,
+    allProjectThreads: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -40,8 +42,11 @@ function parseArgs(argv) {
       args.model = argv[++i];
     } else if (arg === "--thread") {
       args.threadId = argv[++i];
+      args.explicitThread = true;
     } else if (arg === "--config-default") {
       args.configDefault = true;
+    } else if (arg === "--all-project-threads") {
+      args.allProjectThreads = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -50,6 +55,10 @@ function parseArgs(argv) {
   if (!args.model) {
     usage();
     process.exit(2);
+  }
+
+  if (args.allProjectThreads && !args.explicitThread) {
+    args.threadId = null;
   }
 
   return args;
@@ -133,12 +142,62 @@ async function findTargetThread(db, requestedThreadId) {
   return row;
 }
 
+async function findProjectThreads(db) {
+  const cwd = normalizePathForSql(process.cwd());
+  const rows = await all(
+    db,
+    "SELECT id, title, model, model_provider, cwd, source FROM threads WHERE COALESCE(archived, 0) = 0 ORDER BY updated_at_ms DESC LIMIT 500",
+  );
+  return rows.filter((item) => {
+    if (!normalizePathForSql(item.cwd || "").includes(cwd)) {
+      return false;
+    }
+
+    return item.source !== "exec";
+  });
+}
+
 async function main() {
-  const { model, threadId, configDefault } = parseArgs(process.argv.slice(2));
+  const { model, threadId, configDefault, allProjectThreads } = parseArgs(process.argv.slice(2));
   const provider = providerForModel(model);
   const db = new sqlite3.Database(DB_PATH);
 
   try {
+    if (allProjectThreads && !threadId) {
+      const projectThreads = await findProjectThreads(db);
+      if (projectThreads.length === 0) {
+        throw new Error(`no_project_threads_for_workspace=${process.cwd()}`);
+      }
+
+      const placeholders = projectThreads.map(() => "?").join(",");
+      const changes = await run(
+        db,
+        `UPDATE threads SET model = ?, model_provider = ? WHERE id IN (${placeholders})`,
+        [model, provider, ...projectThreads.map((thread) => thread.id)],
+      );
+
+      console.log(`updated_rows=${changes}`);
+      console.log(`updated_scope=project_threads`);
+      console.log(`updated_thread_count=${projectThreads.length}`);
+      console.log(
+        `updated_threads=${JSON.stringify(
+          projectThreads.map((thread) => ({
+            id: thread.id,
+            title: thread.title,
+            before_model: thread.model,
+            before_provider: thread.model_provider,
+            after_model: model,
+            after_provider: provider,
+          })),
+        )}`,
+      );
+      if (configDefault) {
+        console.log(setConfigDefault(model));
+      }
+      console.log(`next_step=Fully close and reopen Codex Desktop before retrying this GUI project.`);
+      return;
+    }
+
     const before = await findTargetThread(db, threadId);
     const changes = await run(db, "UPDATE threads SET model = ?, model_provider = ? WHERE id = ?", [
       model,
