@@ -37,19 +37,14 @@ Verified on this machine on 2026-05-04:
   Desktop GUI model lists.
 - `mimo-v2.5-pro` is present in both the custom catalog and models cache with
   `["text", "image"]` input modalities and tool support enabled.
-- The current active GUI thread is saved as
-  `mimo-v2.5-pro/cmp_1777839123484_1`.
 - The top-level default is saved as `gpt-5.5/openai`, so new GPT sessions do
   not get routed through the MiMo proxy.
-- The active GUI thread was repaired from `gpt-5.5/openai` to
-  `mimo-v2.5-pro/cmp_1777839123484_1` after Desktop tried to send MiMo through
-  the ChatGPT-account provider.
-- The active GUI thread repair was verified in `state_5.sqlite`; a full Codex
-  Desktop close/reopen is still required so the running GUI reloads that saved
-  provider binding.
-- A later GUI 400 was caused by the same active thread drifting back to
-  `gpt-5.5/cmp_1777839123484_1`. It was repaired to `gpt-5.5/openai` with
-  `node set-thread-model-provider.cjs --current --model gpt-5.5`.
+- The latest GUI thread is currently saved as `gpt-5.5/openai`.
+- The saved thread database currently has no known GPT/MiMo provider
+  mismatches.
+- Earlier GUI 400s came from live Desktop sessions where the visible model slug
+  changed but the in-memory provider did not. For GUI use, run the hard-switch
+  helper and let it restart Desktop so the provider binding is reloaded.
 
 Non-blocking warnings still appear in some CLI runs from Codex plugin/analytics
 sync calls returning HTTP 403 from `chatgpt.com`. They did not block GPT-5.5,
