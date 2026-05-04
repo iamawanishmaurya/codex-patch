@@ -13,13 +13,27 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-function Get-CodexAppPath {
+function Get-CodexLaunchTarget {
+    $startApp = Get-StartApps | Where-Object {
+        $_.Name -eq "Codex" -or $_.AppID -like "OpenAI.Codex_*"
+    } | Select-Object -First 1
+
+    if ($startApp -and $startApp.AppID) {
+        return [pscustomobject]@{
+            Kind = "AppId"
+            Value = $startApp.AppID
+        }
+    }
+
     $runningApp = Get-CimInstance Win32_Process | Where-Object {
         $_.Name -eq "Codex.exe" -and $_.CommandLine -notmatch "--type="
     } | Select-Object -First 1
 
     if ($runningApp -and $runningApp.ExecutablePath) {
-        return $runningApp.ExecutablePath
+        return [pscustomobject]@{
+            Kind = "Path"
+            Value = $runningApp.ExecutablePath
+        }
     }
 
     $installedApp = Get-ChildItem -Path "C:\Program Files\WindowsApps" -Filter "OpenAI.Codex_*" -Directory -ErrorAction SilentlyContinue |
@@ -28,11 +42,33 @@ function Get-CodexAppPath {
         Where-Object { Test-Path $_ } |
         Select-Object -First 1
 
-    if (-not $installedApp) {
-        throw "Could not locate Codex.exe under C:\Program Files\WindowsApps."
+    if ($installedApp) {
+        return [pscustomobject]@{
+            Kind = "Path"
+            Value = $installedApp
+        }
     }
 
-    return $installedApp
+    throw "Could not locate Codex Desktop from running processes, Start menu apps, or C:\Program Files\WindowsApps."
+}
+
+function Start-CodexDesktop {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject] $LaunchTarget
+    )
+
+    if ($LaunchTarget.Kind -eq "Path") {
+        Start-Process -FilePath $LaunchTarget.Value
+        return
+    }
+
+    if ($LaunchTarget.Kind -eq "AppId") {
+        Start-Process -FilePath "explorer.exe" -ArgumentList "shell:AppsFolder\$($LaunchTarget.Value)"
+        return
+    }
+
+    throw "Unknown Codex Desktop launch target kind: $($LaunchTarget.Kind)"
 }
 
 Push-Location $RepoRoot
@@ -66,6 +102,9 @@ try {
         return
     }
 
+    $launchTarget = Get-CodexLaunchTarget
+    Write-Host "launch_target_kind=$($launchTarget.Kind)"
+    Write-Host "launch_target_value=$($launchTarget.Value)"
     Write-Host "Restarting Codex Desktop so the provider binding reloads..."
 
     $codexProcesses = Get-CimInstance Win32_Process | Where-Object {
@@ -88,7 +127,7 @@ try {
         }
 
     Start-Sleep -Seconds 2
-    Start-Process -FilePath (Get-CodexAppPath)
+    Start-CodexDesktop -LaunchTarget $launchTarget
     Write-Host "restarted=true"
 } finally {
     Pop-Location

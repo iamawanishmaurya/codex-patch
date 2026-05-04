@@ -254,6 +254,11 @@ codex-gui mimo
 codex-gui mino
 ```
 
+The launcher uses the registered Windows app id from `Get-StartApps` instead
+of relying on direct `C:\Program Files\WindowsApps` directory access. That
+avoids the `Could not locate Codex.exe under C:\Program Files\WindowsApps`
+failure on systems where Windows blocks listing that folder.
+
 Codex Desktop 0.128 can change a visible model slug inside an already-running
 thread without changing that thread's provider. Use the hard switch helper for
 cross-provider changes:
