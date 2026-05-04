@@ -75,6 +75,35 @@ function Start-CodexDesktop {
 
 Push-Location $RepoRoot
 try {
+    $launchTarget = $null
+    if (-not $NoRestart) {
+        $launchTarget = Get-CodexLaunchTarget
+        Write-Host "launch_target_kind=$($launchTarget.Kind)"
+        Write-Host "launch_target_value=$($launchTarget.Value)"
+        Write-Host "Stopping Codex Desktop before writing model/provider state..."
+
+        $codexProcesses = Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -eq "Codex.exe" -or
+            ($_.Name -eq "codex.exe" -and $_.ExecutablePath -like "C:\Program Files\WindowsApps\OpenAI.Codex_*")
+        }
+
+        if ($KillRunningSessions) {
+            $codexProcesses += Get-CimInstance Win32_Process | Where-Object {
+                ($_.Name -eq "codex.exe" -or $_.Name -eq "node.exe") -and
+                $_.CommandLine -match "(codex\.js|codex\\codex\.exe)\s+resume"
+            }
+        }
+
+        $codexProcesses |
+            Where-Object { $_.ProcessId -ne $PID } |
+            Sort-Object ProcessId -Unique |
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+
+        Start-Sleep -Seconds 2
+    }
+
     node repair-codex-mimo.cjs
 
     if ($Model.StartsWith("gpt-")) {
@@ -107,31 +136,7 @@ try {
         return
     }
 
-    $launchTarget = Get-CodexLaunchTarget
-    Write-Host "launch_target_kind=$($launchTarget.Kind)"
-    Write-Host "launch_target_value=$($launchTarget.Value)"
     Write-Host "Restarting Codex Desktop so the provider binding reloads..."
-
-    $codexProcesses = Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -eq "Codex.exe" -or
-        ($_.Name -eq "codex.exe" -and $_.ExecutablePath -like "C:\Program Files\WindowsApps\OpenAI.Codex_*")
-    }
-
-    if ($KillRunningSessions) {
-        $codexProcesses += Get-CimInstance Win32_Process | Where-Object {
-            ($_.Name -eq "codex.exe" -or $_.Name -eq "node.exe") -and
-            $_.CommandLine -match "(codex\.js|codex\\codex\.exe)\s+resume"
-        }
-    }
-
-    $codexProcesses |
-        Where-Object { $_.ProcessId -ne $PID } |
-        Sort-Object ProcessId -Unique |
-        ForEach-Object {
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-        }
-
-    Start-Sleep -Seconds 2
     Start-CodexDesktop -LaunchTarget $launchTarget
     Write-Host "restarted=true"
 } finally {

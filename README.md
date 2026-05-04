@@ -37,9 +37,11 @@ Verified on this machine on 2026-05-04:
   Desktop GUI model lists.
 - `mimo-v2.5-pro` is present in both the custom catalog and models cache with
   `["text", "image"]` input modalities and tool support enabled.
-- The top-level default is saved as `gpt-5.5/openai`, so new GPT sessions do
-  not get routed through the MiMo proxy.
-- The latest GUI thread is currently saved as `gpt-5.5/openai`.
+- `codex-gui` sets the top-level default to the selected model/provider pair.
+  After the latest MiMo verification, the default is
+  `mimo-v2.5-pro/cmp_1777839123484_1`.
+- The latest GUI project repair moved all 4 visible `mimo` project chats to
+  `mimo-v2.5-pro/cmp_1777839123484_1`.
 - The saved thread database currently has no known GPT/MiMo provider
   mismatches.
 - Earlier GUI 400s came from live Desktop sessions where the visible model slug
@@ -267,6 +269,11 @@ The launcher uses the registered Windows app id from `Get-StartApps` instead
 of relying on direct `C:\Program Files\WindowsApps` directory access. That
 avoids the `Could not locate Codex.exe under C:\Program Files\WindowsApps`
 failure on systems where Windows blocks listing that folder.
+
+The hard switch stops Codex Desktop before writing `state_5.sqlite`. If Desktop
+stays open while the database is edited, the live session can write its old
+model/provider back and the sidebar may show only the one chat that kept the
+new model.
 
 Codex Desktop 0.128 can change a visible model slug inside an already-running
 thread without changing that thread's provider. Use the hard switch helper for
