@@ -1,5 +1,6 @@
 const { createRequire } = require("node:module");
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const requireFromN8n = createRequire("C:/Users/water/AppData/Roaming/npm/node_modules/n8n/");
@@ -80,6 +81,14 @@ function normalizePathForSql(value) {
   return value.replace(/\//g, "\\").toLowerCase();
 }
 
+function normalizeFsPath(value) {
+  if (!value) {
+    return value;
+  }
+
+  return value.startsWith("\\\\?\\") ? value.slice(4) : value;
+}
+
 function get(db, sql, params = []) {
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
@@ -121,7 +130,7 @@ function setConfigDefault(model) {
 
 async function findTargetThread(db, requestedThreadId) {
   if (requestedThreadId) {
-    const row = await get(db, "SELECT id, title, model, model_provider, cwd FROM threads WHERE id = ?", [
+    const row = await get(db, "SELECT id, title, model, model_provider, cwd, rollout_path FROM threads WHERE id = ?", [
       requestedThreadId,
     ]);
     if (!row) {
@@ -133,7 +142,7 @@ async function findTargetThread(db, requestedThreadId) {
   const cwd = normalizePathForSql(process.cwd());
   const rows = await all(
     db,
-    "SELECT id, title, model, model_provider, cwd FROM threads ORDER BY updated_at_ms DESC LIMIT 100",
+    "SELECT id, title, model, model_provider, cwd, rollout_path FROM threads ORDER BY updated_at_ms DESC LIMIT 100",
   );
   const row = rows.find((item) => normalizePathForSql(item.cwd || "").includes(cwd));
   if (!row) {
@@ -146,7 +155,7 @@ async function findProjectThreads(db) {
   const cwd = normalizePathForSql(process.cwd());
   const rows = await all(
     db,
-    "SELECT id, title, model, model_provider, cwd, source FROM threads WHERE COALESCE(archived, 0) = 0 ORDER BY updated_at_ms DESC LIMIT 500",
+    "SELECT id, title, model, model_provider, cwd, source, rollout_path FROM threads WHERE COALESCE(archived, 0) = 0 ORDER BY updated_at_ms DESC LIMIT 500",
   );
   return rows.filter((item) => {
     if (!normalizePathForSql(item.cwd || "").includes(cwd)) {
@@ -155,6 +164,104 @@ async function findProjectThreads(db) {
 
     return item.source !== "exec";
   });
+}
+
+function updatePayloadModelMetadata(item, model, provider) {
+  if (!item || typeof item !== "object" || !item.payload || typeof item.payload !== "object") {
+    return false;
+  }
+
+  let changed = false;
+
+  if (item.type === "session_meta") {
+    if (item.payload.model_provider !== provider) {
+      item.payload.model_provider = provider;
+      changed = true;
+    }
+  }
+
+  if (item.type === "turn_context") {
+    if (item.payload.model !== model) {
+      item.payload.model = model;
+      changed = true;
+    }
+
+    if (item.payload.model_provider !== provider) {
+      item.payload.model_provider = provider;
+      changed = true;
+    }
+
+    const settings = item.payload.collaboration_mode && item.payload.collaboration_mode.settings;
+    if (settings && typeof settings === "object") {
+      if (settings.model !== model) {
+        settings.model = model;
+        changed = true;
+      }
+
+      if (settings.model_provider !== provider) {
+        settings.model_provider = provider;
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
+function syncRolloutMetadata(thread, model, provider) {
+  const rolloutPath = normalizeFsPath(thread.rollout_path);
+  if (!rolloutPath) {
+    return { id: thread.id, title: thread.title, action: "missing_rollout_path", changed_lines: 0 };
+  }
+
+  if (!fs.existsSync(rolloutPath)) {
+    return { id: thread.id, title: thread.title, action: "rollout_not_found", rollout_path: rolloutPath, changed_lines: 0 };
+  }
+
+  const before = fs.readFileSync(rolloutPath, "utf8");
+  const newline = before.includes("\r\n") ? "\r\n" : "\n";
+  const hadFinalNewline = before.endsWith("\n");
+  const lines = before.split(/\r?\n/);
+  let changedLines = 0;
+
+  const nextLines = lines.map((line) => {
+    if (!line.trim()) {
+      return line;
+    }
+
+    try {
+      const item = JSON.parse(line);
+      if (updatePayloadModelMetadata(item, model, provider)) {
+        changedLines += 1;
+        return JSON.stringify(item);
+      }
+    } catch {
+      return line;
+    }
+
+    return line;
+  });
+
+  let next = nextLines.join(newline);
+  if (hadFinalNewline && !next.endsWith(newline)) {
+    next += newline;
+  }
+
+  if (next !== before) {
+    fs.writeFileSync(rolloutPath, next);
+  }
+
+  return {
+    id: thread.id,
+    title: thread.title,
+    action: changedLines > 0 ? "updated" : "unchanged",
+    rollout_path: rolloutPath,
+    changed_lines: changedLines,
+  };
+}
+
+function syncRolloutMetadataForThreads(threads, model, provider) {
+  return threads.map((thread) => syncRolloutMetadata(thread, model, provider));
 }
 
 async function main() {
@@ -175,6 +282,7 @@ async function main() {
         `UPDATE threads SET model = ?, model_provider = ? WHERE id IN (${placeholders})`,
         [model, provider, ...projectThreads.map((thread) => thread.id)],
       );
+      const rolloutSync = syncRolloutMetadataForThreads(projectThreads, model, provider);
 
       console.log(`updated_rows=${changes}`);
       console.log(`updated_scope=project_threads`);
@@ -191,6 +299,7 @@ async function main() {
           })),
         )}`,
       );
+      console.log(`rollout_sync=${JSON.stringify(rolloutSync)}`);
       if (configDefault) {
         console.log(setConfigDefault(model));
       }
@@ -204,13 +313,15 @@ async function main() {
       provider,
       before.id,
     ]);
-    const after = await get(db, "SELECT id, title, model, model_provider, cwd FROM threads WHERE id = ?", [
+    const rolloutSync = syncRolloutMetadataForThreads([before], model, provider);
+    const after = await get(db, "SELECT id, title, model, model_provider, cwd, rollout_path FROM threads WHERE id = ?", [
       before.id,
     ]);
 
     console.log(`updated_rows=${changes}`);
     console.log(`before=${JSON.stringify(before)}`);
     console.log(`after=${JSON.stringify(after)}`);
+    console.log(`rollout_sync=${JSON.stringify(rolloutSync)}`);
     if (configDefault) {
       console.log(setConfigDefault(model));
     }

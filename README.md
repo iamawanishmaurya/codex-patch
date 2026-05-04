@@ -42,6 +42,14 @@ Verified on this machine on 2026-05-04:
   `mimo-v2.5-pro/cmp_1777839123484_1`.
 - The latest GUI project repair moved all 4 visible `mimo` project chats to
   `mimo-v2.5-pro/cmp_1777839123484_1`.
+- The GUI switch now updates both `state_5.sqlite` and each selected thread's
+  rollout JSONL metadata so Codex Desktop does not rebuild mixed GPT/MiMo
+  sidebar state on launch.
+- A no-restart switch verification synced all 4 visible project chats to
+  `gpt-5.5/openai`, then back to `mimo-v2.5-pro/cmp_1777839123484_1`; SQLite
+  and rollout metadata were clean in both directions.
+- After the rollout metadata sync fix, MiMo CLI image input returned
+  `MIMO_IMAGE_ROLLOUT_SYNC_OK`.
 - The saved thread database currently has no known GPT/MiMo provider
   mismatches.
 - Earlier GUI 400s came from live Desktop sessions where the visible model slug
@@ -73,7 +81,8 @@ Helper files in this repo:
 - `set-codex-default-model.cjs` changes the top-level Desktop default
   model/provider pair in `config.toml`.
 - `switch-codex-gui-model.cjs` switches the current or latest GUI thread to
-  the matching model/provider pair.
+  the matching model/provider pair and syncs rollout JSONL metadata for the
+  same threads.
 - `watch-codex-provider-drift.cjs` continuously repairs saved thread rows when
   Codex Desktop writes a model/provider mismatch.
 - `update-gpt-providers.cjs` moves GPT threads away from the MiMo provider.
@@ -274,6 +283,11 @@ The hard switch stops Codex Desktop before writing `state_5.sqlite`. If Desktop
 stays open while the database is edited, the live session can write its old
 model/provider back and the sidebar may show only the one chat that kept the
 new model.
+
+Codex Desktop can also rebuild sidebar metadata from per-thread rollout JSONL
+files under `C:\Users\water\.codex\sessions`. The switch helper updates
+`session_meta.model_provider`, `turn_context.model`, and the collaboration-mode
+model/provider fields in those files alongside SQLite.
 
 Codex Desktop 0.128 can change a visible model slug inside an already-running
 thread without changing that thread's provider. Use the hard switch helper for
