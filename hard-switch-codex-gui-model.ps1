@@ -150,6 +150,44 @@ function Start-CodexDesktop {
     throw "Unknown Codex Desktop launch target kind: $($LaunchTarget.Kind)"
 }
 
+function Test-CodexDesktopMainProcess {
+    return [bool](Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -eq "Codex.exe" -and $_.CommandLine -notmatch "--type="
+    } | Select-Object -First 1)
+}
+
+function Open-CodexDesktopNewWindow {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject] $LaunchTarget
+    )
+
+    if (-not (Test-CodexDesktopMainProcess)) {
+        Start-CodexDesktop -LaunchTarget $LaunchTarget
+        Write-Log "desktop_launch_mode=start_app"
+        return
+    }
+
+    $shell = New-Object -ComObject WScript.Shell
+    $activated = $shell.AppActivate("Codex")
+    if (-not $activated) {
+        Start-CodexDesktop -LaunchTarget $LaunchTarget
+        Start-Sleep -Seconds 2
+        $activated = $shell.AppActivate("Codex")
+    }
+
+    if (-not $activated) {
+        throw "Could not focus Codex Desktop to open a new window."
+    }
+
+    Start-Sleep -Milliseconds 300
+    $shell.SendKeys("^+n")
+    Start-Sleep -Milliseconds 800
+    $shell.SendKeys("^n")
+    Write-Log "desktop_launch_mode=new_window_shortcut"
+    Write-Log "desktop_new_chat_shortcut=true"
+}
+
 Push-Location $RepoRoot
 try {
     $selectedProvider = Get-ProviderForModel -ModelName $Model
@@ -220,10 +258,11 @@ try {
 
     if ($shouldRestart) {
         Write-Log "Restarting Codex Desktop so the provider binding reloads..."
+        Start-CodexDesktop -LaunchTarget $launchTarget
     } else {
-        Write-Log "Opening or focusing Codex Desktop without closing existing sessions..."
+        Write-Log "Opening a new Codex Desktop window without closing existing sessions..."
+        Open-CodexDesktopNewWindow -LaunchTarget $launchTarget
     }
-    Start-CodexDesktop -LaunchTarget $launchTarget
     Write-Log "launched=true"
 } finally {
     Pop-Location

@@ -549,7 +549,7 @@ $actionText = if ($NoRestart) {
 } elseif ($Restart) {
     "Patching state and restarting Codex Desktop..."
 } else {
-    "Patching state and focusing the single Codex Desktop window..."
+    "Patching state and opening a new Codex Desktop window..."
 }
 
 Invoke-HardSwitchWithSpinner -SwitchParams $switchParams -Message $actionText
@@ -562,6 +562,5 @@ if ($Terminal) {
 } elseif ($Restart) {
     Write-Color "  OK Codex Desktop restarted with $($SelectedOption.Label)." Green
 } else {
-    Write-Color "  OK Codex Desktop is opening or focused with $($SelectedOption.Label)." Green
-    Write-Color "  Note: Codex Desktop is single-window here; use -Terminal for another concurrent session." DarkYellow
+    Write-Color "  OK Codex Desktop new window requested with $($SelectedOption.Label)." Green
 }
