@@ -8,6 +8,9 @@ param(
 
     [switch] $Restart,
 
+    [Alias("Cli", "Tui")]
+    [switch] $Terminal,
+
     [switch] $KillRunningSessions,
 
     [switch] $CurrentOnly,
@@ -80,6 +83,9 @@ function Import-LongArguments {
             "--plain" { $script:NoAnimation = $true; continue }
             "--no-restart" { $script:NoRestart = $true; continue }
             "--restart" { $script:Restart = $true; continue }
+            "--terminal" { $script:Terminal = $true; continue }
+            "--cli" { $script:Terminal = $true; continue }
+            "--tui" { $script:Terminal = $true; continue }
             "--kill-running-sessions" { $script:KillRunningSessions = $true; continue }
             "--current-only" { $script:CurrentOnly = $true; continue }
             "--project-threads" { $script:ProjectThreads = $true; continue }
@@ -155,6 +161,7 @@ function Show-Usage {
     Write-Host "Options:"
     Write-Host "  -NoRestart            Switch saved state only; do not open or focus Codex Desktop."
     Write-Host "  -Restart              Close and reopen Codex Desktop after switching."
+    Write-Host "  -Terminal             Open a separate Codex terminal/TUI session for this model."
     Write-Host "  -KillRunningSessions  With -Restart, also stop Codex resume/session helper processes."
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
     Write-Host "  -CurrentOnly          Switch only the current/latest thread row."
@@ -165,7 +172,7 @@ function Show-Usage {
     Write-Host "  -VerboseLogs          Show raw repair/switch logs."
     Write-Host "  -NoAnimation          Disable spinner animation."
     Write-Host ""
-    Write-Host "Double-dash aliases also work: --login, --verbose, --logs, --no-restart, --restart, --thread."
+    Write-Host "Double-dash aliases also work: --login, --verbose, --logs, --no-restart, --restart, --terminal, --thread."
     Write-Host ""
 }
 
@@ -438,6 +445,29 @@ function Invoke-HardSwitchWithSpinner {
     }
 }
 
+function Start-CodexTerminalSession {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object] $ModelOption
+    )
+
+    $startDirectory = (Get-Location).Path
+    if ($ModelOption.ProviderConfig.id -eq "xiaomi") {
+        $codexArgs = @("--profile", "mimo", "--model", $ModelOption.Model)
+    } else {
+        $codexArgs = @("--model", $ModelOption.Model)
+    }
+
+    $title = "Codex $($ModelOption.Label)"
+    $quotedArgs = ($codexArgs | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join " "
+    $command = "title $title && cd /d `"$startDirectory`" && codex $quotedArgs"
+
+    Start-Process -FilePath "cmd.exe" -ArgumentList @(
+        "/k",
+        $command
+    ) -WindowStyle Normal
+}
+
 Import-LongArguments
 
 if ($Help) {
@@ -458,6 +488,10 @@ if ($scopeFlags.Count -gt 1) {
 
 if ($NoRestart -and $Restart) {
     throw "-NoRestart and -Restart cannot be combined."
+}
+
+if ($Terminal -and $Restart) {
+    throw "-Terminal and -Restart cannot be combined."
 }
 
 if (-not (Test-Path -LiteralPath $HardSwitchScript)) {
@@ -488,7 +522,7 @@ $switchParams = @{ Model = $SelectedModel }
 if ($Thread) {
     $switchParams.Thread = $Thread
 }
-if ($NoRestart) {
+if ($NoRestart -or $Terminal) {
     $switchParams.NoRestart = $true
 }
 if ($Restart) {
@@ -510,18 +544,24 @@ if ($VerboseLogs) {
 
 $actionText = if ($NoRestart) {
     "Patching saved Codex state..."
+} elseif ($Terminal) {
+    "Patching state for a terminal Codex session..."
 } elseif ($Restart) {
     "Patching state and restarting Codex Desktop..."
 } else {
-    "Patching state and focusing Codex Desktop..."
+    "Patching state and focusing the single Codex Desktop window..."
 }
 
 Invoke-HardSwitchWithSpinner -SwitchParams $switchParams -Message $actionText
 
-if ($NoRestart) {
+if ($Terminal) {
+    Start-CodexTerminalSession -ModelOption $SelectedOption
+    Write-Color "  OK Opened a separate Codex terminal session with $($SelectedOption.Label)." Green
+} elseif ($NoRestart) {
     Write-Color "  OK Saved model state updated. Restart skipped." Green
 } elseif ($Restart) {
     Write-Color "  OK Codex Desktop restarted with $($SelectedOption.Label)." Green
 } else {
     Write-Color "  OK Codex Desktop is opening or focused with $($SelectedOption.Label)." Green
+    Write-Color "  Note: Codex Desktop is single-window here; use -Terminal for another concurrent session." DarkYellow
 }

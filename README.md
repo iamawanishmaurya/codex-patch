@@ -72,6 +72,13 @@ Verified on this machine on 2026-05-04:
   default. It patches state, starts or focuses Codex Desktop, and preserves the
   existing main `Codex.exe` process. Use `-Restart` only when you intentionally
   want the old close-and-reopen behavior.
+- Codex Desktop behaves as a single-window app on this machine: AppId launch,
+  direct `Codex.exe` launch, and a separate Electron `--user-data-dir` launch
+  all focused or reused the existing Desktop process instead of creating a
+  second Desktop window.
+- For concurrent GPT/MiMo work, use `codex-gui <model> -Terminal`. That opens a
+  separate Codex terminal/TUI session for the selected model while leaving the
+  Desktop window alone.
 - A no-restart switch verification synced all 4 visible project chats to
   `gpt-5.5/openai`, then back to `mimo-v2.5-pro/cmp_1777839123484_1`; SQLite
   and rollout metadata were clean in both directions.
@@ -324,8 +331,8 @@ codex-gui gpt55 --verbose
 ```
 
 The launcher also accepts CLI-style flags such as `--logs`, `--no-restart`,
-`--restart`, `--current-only`, `--project-threads`, `--all-project-threads`,
-`--thread <id>`, and `--plain`.
+`--restart`, `--terminal`, `--current-only`, `--project-threads`,
+`--all-project-threads`, `--thread <id>`, and `--plain`.
 
 Use `codex-gui mimo -CurrentOnly` when you intentionally want to switch only
 the current/latest thread row.
@@ -336,6 +343,10 @@ bulk-migrate visible GUI chats to the same provider.
 Use `codex-gui mimo -Restart` only when you intentionally want to close and
 reopen Codex Desktop after patching the provider state. Normal `codex-gui`
 runs preserve the existing Desktop process.
+
+Use `codex-gui mimo -Terminal` or `codex-gui gpt-5.5 -Terminal` when you need
+another live Codex session at the same time. Desktop is single-window here, but
+terminal/TUI sessions can run side by side.
 
 One-shot `codex exec ...` verification runs are stored with `source=exec`.
 Codex Desktop does not show those in the normal GUI chat list, so the
