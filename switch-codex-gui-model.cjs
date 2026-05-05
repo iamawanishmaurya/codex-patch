@@ -13,14 +13,16 @@ function usage() {
   console.error(
     [
       "Usage:",
-      "  node switch-codex-gui-model.cjs --model <model> [--thread <thread-id>] [--config-default] [--all-project-threads]",
+      "  node switch-codex-gui-model.cjs --model <model> [--thread <thread-id>] [--project-threads] [--config-default] [--all-project-threads]",
       "",
       "Defaults:",
       "  Uses CODEX_THREAD_ID when available.",
       "  Otherwise repairs the latest thread for this workspace.",
+      "  --project-threads updates non-exec Codex Desktop threads in this workspace only.",
       "  --all-project-threads updates all non-exec Codex Desktop threads across every project.",
       "",
       "Examples:",
+      "  node switch-codex-gui-model.cjs --model mimo-v2.5-pro --project-threads",
       "  node switch-codex-gui-model.cjs --model mimo-v2.5-pro --all-project-threads",
       "  node switch-codex-gui-model.cjs --model gpt-5.5 --config-default",
     ].join("\n"),
@@ -33,6 +35,7 @@ function parseArgs(argv) {
     threadId: process.env.CODEX_THREAD_ID || null,
     explicitThread: false,
     configDefault: false,
+    projectThreads: false,
     allProjectThreads: false,
   };
 
@@ -45,6 +48,8 @@ function parseArgs(argv) {
       args.explicitThread = true;
     } else if (arg === "--config-default") {
       args.configDefault = true;
+    } else if (arg === "--project-threads") {
+      args.projectThreads = true;
     } else if (arg === "--all-project-threads") {
       args.allProjectThreads = true;
     } else {
@@ -61,11 +66,19 @@ function parseArgs(argv) {
     args.threadId = null;
   }
 
+  if (args.projectThreads && !args.explicitThread) {
+    args.threadId = null;
+  }
+
+  if (args.projectThreads && args.allProjectThreads) {
+    throw new Error("--project-threads and --all-project-threads cannot be used together");
+  }
+
   return args;
 }
 
 function normalizePathForSql(value) {
-  return value.replace(/\//g, "\\").toLowerCase();
+  return normalizeFsPath(value).replace(/\//g, "\\").toLowerCase();
 }
 
 function normalizeFsPath(value) {
@@ -145,6 +158,15 @@ async function findProjectThreads(db) {
   );
   return rows.filter((item) => {
     return item.source !== "exec";
+  });
+}
+
+async function findWorkspaceThreads(db) {
+  const cwd = normalizePathForSql(process.cwd()).replace(/\\+$/, "");
+  const rows = await findProjectThreads(db);
+  return rows.filter((item) => {
+    const threadCwd = normalizePathForSql(item.cwd || "").replace(/\\+$/, "");
+    return threadCwd === cwd;
   });
 }
 
@@ -247,11 +269,48 @@ function syncRolloutMetadataForThreads(threads, model, provider) {
 }
 
 async function main() {
-  const { model, threadId, configDefault, allProjectThreads } = parseArgs(process.argv.slice(2));
+  const { model, threadId, configDefault, projectThreads, allProjectThreads } = parseArgs(process.argv.slice(2));
   const provider = providerForModel(model);
   const db = new sqlite3.Database(DB_PATH);
 
   try {
+    if (projectThreads && !threadId) {
+      const workspaceThreads = await findWorkspaceThreads(db);
+      if (workspaceThreads.length === 0) {
+        throw new Error(`no_gui_threads_for_workspace=${process.cwd()}`);
+      }
+
+      const placeholders = workspaceThreads.map(() => "?").join(",");
+      const changes = await run(
+        db,
+        `UPDATE threads SET model = ?, model_provider = ? WHERE id IN (${placeholders})`,
+        [model, provider, ...workspaceThreads.map((thread) => thread.id)],
+      );
+      const rolloutSync = syncRolloutMetadataForThreads(workspaceThreads, model, provider);
+
+      console.log(`updated_rows=${changes}`);
+      console.log(`updated_scope=workspace_threads`);
+      console.log(`updated_thread_count=${workspaceThreads.length}`);
+      console.log(
+        `updated_threads=${JSON.stringify(
+          workspaceThreads.map((thread) => ({
+            id: thread.id,
+            title: thread.title,
+            before_model: thread.model,
+            before_provider: thread.model_provider,
+            after_model: model,
+            after_provider: provider,
+          })),
+        )}`,
+      );
+      console.log(`rollout_sync=${JSON.stringify(rolloutSync)}`);
+      if (configDefault) {
+        console.log(setConfigDefault(model));
+      }
+      console.log(`next_step=Fully close and reopen Codex Desktop before retrying this GUI project.`);
+      return;
+    }
+
     if (allProjectThreads && !threadId) {
       const projectThreads = await findProjectThreads(db);
       if (projectThreads.length === 0) {

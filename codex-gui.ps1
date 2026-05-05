@@ -10,6 +10,8 @@ param(
 
     [switch] $CurrentOnly,
 
+    [switch] $ProjectThreads,
+
     [switch] $AllProjectThreads,
 
     [switch] $List,
@@ -77,6 +79,7 @@ function Import-LongArguments {
             "--no-restart" { $script:NoRestart = $true; continue }
             "--kill-running-sessions" { $script:KillRunningSessions = $true; continue }
             "--current-only" { $script:CurrentOnly = $true; continue }
+            "--project-threads" { $script:ProjectThreads = $true; continue }
             "--all-project-threads" { $script:AllProjectThreads = $true; continue }
             "--list" { $script:List = $true; continue }
             "--login" { $script:Login = $true; continue }
@@ -151,6 +154,7 @@ function Show-Usage {
     Write-Host "  -KillRunningSessions  Also stop Codex resume/session helper processes."
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
     Write-Host "  -CurrentOnly          Switch only the current/latest thread row."
+    Write-Host "  -ProjectThreads       Switch visible chats in this project only. This is the default."
     Write-Host "  -AllProjectThreads    Switch every visible GUI chat across projects."
     Write-Host "  -List                 Show model choices."
     Write-Host "  -Login                Interactive provider/API setup and model picker."
@@ -443,8 +447,9 @@ if ($List) {
     exit 0
 }
 
-if ($CurrentOnly -and $AllProjectThreads) {
-    throw "-CurrentOnly and -AllProjectThreads cannot be used together."
+$scopeFlags = @($CurrentOnly, $ProjectThreads, $AllProjectThreads) | Where-Object { $_ }
+if ($scopeFlags.Count -gt 1) {
+    throw "-CurrentOnly, -ProjectThreads, and -AllProjectThreads cannot be combined."
 }
 
 if (-not (Test-Path -LiteralPath $HardSwitchScript)) {
@@ -481,8 +486,12 @@ if ($NoRestart) {
 if ($KillRunningSessions) {
     $switchParams.KillRunningSessions = $true
 }
-if ($AllProjectThreads -and -not $Thread) {
-    $switchParams.AllProjectThreads = $true
+if (-not $Thread -and -not $CurrentOnly) {
+    if ($AllProjectThreads) {
+        $switchParams.AllProjectThreads = $true
+    } else {
+        $switchParams.ProjectThreads = $true
+    }
 }
 if ($VerboseLogs) {
     $switchParams.VerboseLogs = $true

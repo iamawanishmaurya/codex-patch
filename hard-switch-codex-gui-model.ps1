@@ -8,6 +8,8 @@ param(
 
     [switch] $KillRunningSessions,
 
+    [switch] $ProjectThreads,
+
     [switch] $AllProjectThreads,
 
     [switch] $VerboseLogs
@@ -189,6 +191,9 @@ try {
     $switchArgs = @("switch-codex-gui-model.cjs", "--model", $Model)
     if ($Thread) {
         $switchArgs += @("--thread", $Thread)
+    }
+    if ($ProjectThreads -and -not $Thread) {
+        $switchArgs += "--project-threads"
     }
     if ($AllProjectThreads -and -not $Thread) {
         $switchArgs += "--all-project-threads"

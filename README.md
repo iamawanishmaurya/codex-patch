@@ -61,10 +61,13 @@ Verified on this machine on 2026-05-04:
   rollout JSONL metadata so Codex Desktop does not rebuild mixed GPT/MiMo
   sidebar state on launch.
 - The original coexistence bug was that `codex-gui` defaulted to switching all
-  visible GUI chats unless `-CurrentOnly` was passed. That prevented keeping a
-  GPT session and a MiMo session open side by side.
-- The launcher now defaults to switching only the current/latest thread row.
-  Bulk rewrites are opt-in with `-AllProjectThreads`.
+  visible GUI chats across every project unless `-CurrentOnly` was passed. That
+  prevented keeping GPT and MiMo work separated by project.
+- The launcher now defaults to switching visible chats only in the current
+  project folder. This keeps the current project sidebar complete while leaving
+  other project chats on their existing provider.
+- Single-thread switches are opt-in with `-CurrentOnly` or `-Thread <id>`.
+  Whole-machine bulk rewrites are opt-in with `-AllProjectThreads`.
 - A no-restart switch verification synced all 4 visible project chats to
   `gpt-5.5/openai`, then back to `mimo-v2.5-pro/cmp_1777839123484_1`; SQLite
   and rollout metadata were clean in both directions.
@@ -284,8 +287,9 @@ codex-gui
 ```
 
 `codex-gui` shows a colored menu, switches the selected model/provider pair,
-and launches a fresh Codex Desktop session. It now defaults to switching only
-the current/latest thread so GPT and MiMo chats can coexist. It also accepts
+and launches a fresh Codex Desktop session. It now defaults to switching
+visible chats in the current project folder only, so that project's sidebar
+stays complete without rewriting every project on the machine. It also accepts
 direct model aliases:
 
 ```powershell
@@ -316,7 +320,11 @@ codex-gui gpt55 --verbose
 ```
 
 The launcher also accepts CLI-style flags such as `--logs`, `--no-restart`,
-`--current-only`, `--all-project-threads`, `--thread <id>`, and `--plain`.
+`--current-only`, `--project-threads`, `--all-project-threads`,
+`--thread <id>`, and `--plain`.
+
+Use `codex-gui mimo -CurrentOnly` when you intentionally want to switch only
+the current/latest thread row.
 
 Use `codex-gui mimo -AllProjectThreads` only when you intentionally want to
 bulk-migrate visible GUI chats to the same provider.
