@@ -6,6 +6,8 @@ param(
 
     [switch] $NoRestart,
 
+    [switch] $Restart,
+
     [switch] $KillRunningSessions,
 
     [switch] $CurrentOnly,
@@ -77,6 +79,7 @@ function Import-LongArguments {
             "--no-animation" { $script:NoAnimation = $true; continue }
             "--plain" { $script:NoAnimation = $true; continue }
             "--no-restart" { $script:NoRestart = $true; continue }
+            "--restart" { $script:Restart = $true; continue }
             "--kill-running-sessions" { $script:KillRunningSessions = $true; continue }
             "--current-only" { $script:CurrentOnly = $true; continue }
             "--project-threads" { $script:ProjectThreads = $true; continue }
@@ -150,8 +153,9 @@ function Show-Usage {
     Write-Host "  codex-gui /login"
     Write-Host ""
     Write-Host "Options:"
-    Write-Host "  -NoRestart            Switch saved state only; do not relaunch Codex Desktop."
-    Write-Host "  -KillRunningSessions  Also stop Codex resume/session helper processes."
+    Write-Host "  -NoRestart            Switch saved state only; do not open or focus Codex Desktop."
+    Write-Host "  -Restart              Close and reopen Codex Desktop after switching."
+    Write-Host "  -KillRunningSessions  With -Restart, also stop Codex resume/session helper processes."
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
     Write-Host "  -CurrentOnly          Switch only the current/latest thread row."
     Write-Host "  -ProjectThreads       Switch visible chats in this project only. This is the default."
@@ -161,7 +165,7 @@ function Show-Usage {
     Write-Host "  -VerboseLogs          Show raw repair/switch logs."
     Write-Host "  -NoAnimation          Disable spinner animation."
     Write-Host ""
-    Write-Host "Double-dash aliases also work: --login, --verbose, --logs, --no-restart, --thread."
+    Write-Host "Double-dash aliases also work: --login, --verbose, --logs, --no-restart, --restart, --thread."
     Write-Host ""
 }
 
@@ -452,6 +456,10 @@ if ($scopeFlags.Count -gt 1) {
     throw "-CurrentOnly, -ProjectThreads, and -AllProjectThreads cannot be combined."
 }
 
+if ($NoRestart -and $Restart) {
+    throw "-NoRestart and -Restart cannot be combined."
+}
+
 if (-not (Test-Path -LiteralPath $HardSwitchScript)) {
     throw "Missing hard switch helper: $HardSwitchScript"
 }
@@ -483,6 +491,9 @@ if ($Thread) {
 if ($NoRestart) {
     $switchParams.NoRestart = $true
 }
+if ($Restart) {
+    $switchParams.Restart = $true
+}
 if ($KillRunningSessions) {
     $switchParams.KillRunningSessions = $true
 }
@@ -499,14 +510,18 @@ if ($VerboseLogs) {
 
 $actionText = if ($NoRestart) {
     "Patching saved Codex state..."
+} elseif ($Restart) {
+    "Patching state and restarting Codex Desktop..."
 } else {
-    "Patching state and relaunching Codex Desktop..."
+    "Patching state and focusing Codex Desktop..."
 }
 
 Invoke-HardSwitchWithSpinner -SwitchParams $switchParams -Message $actionText
 
 if ($NoRestart) {
     Write-Color "  OK Saved model state updated. Restart skipped." Green
+} elseif ($Restart) {
+    Write-Color "  OK Codex Desktop restarted with $($SelectedOption.Label)." Green
 } else {
-    Write-Color "  OK Codex Desktop is opening with $($SelectedOption.Label)." Green
+    Write-Color "  OK Codex Desktop is opening or focused with $($SelectedOption.Label)." Green
 }

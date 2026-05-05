@@ -6,6 +6,8 @@ param(
 
     [switch] $NoRestart,
 
+    [switch] $Restart,
+
     [switch] $KillRunningSessions,
 
     [switch] $ProjectThreads,
@@ -152,32 +154,39 @@ Push-Location $RepoRoot
 try {
     $selectedProvider = Get-ProviderForModel -ModelName $Model
     $launchTarget = $null
-    if (-not $NoRestart) {
+    $shouldLaunch = -not $NoRestart
+    $shouldRestart = $Restart -and -not $NoRestart
+    if ($shouldLaunch) {
         $launchTarget = Get-CodexLaunchTarget
         Write-Log "launch_target_kind=$($launchTarget.Kind)"
         Write-Log "launch_target_value=$($launchTarget.Value)"
-        Write-Log "Stopping Codex Desktop before writing model/provider state..."
 
-        $codexProcesses = Get-CimInstance Win32_Process | Where-Object {
-            $_.Name -eq "Codex.exe" -or
-            ($_.Name -eq "codex.exe" -and $_.ExecutablePath -like "C:\Program Files\WindowsApps\OpenAI.Codex_*")
-        }
+        if ($shouldRestart) {
+            Write-Log "Stopping Codex Desktop before writing model/provider state..."
 
-        if ($KillRunningSessions) {
-            $codexProcesses += Get-CimInstance Win32_Process | Where-Object {
-                ($_.Name -eq "codex.exe" -or $_.Name -eq "node.exe") -and
-                $_.CommandLine -match "(codex\.js|codex\\codex\.exe)\s+resume"
-            }
-        }
-
-        $codexProcesses |
-            Where-Object { $_.ProcessId -ne $PID } |
-            Sort-Object ProcessId -Unique |
-            ForEach-Object {
-                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            $codexProcesses = Get-CimInstance Win32_Process | Where-Object {
+                $_.Name -eq "Codex.exe" -or
+                ($_.Name -eq "codex.exe" -and $_.ExecutablePath -like "C:\Program Files\WindowsApps\OpenAI.Codex_*")
             }
 
-        Start-Sleep -Seconds 2
+            if ($KillRunningSessions) {
+                $codexProcesses += Get-CimInstance Win32_Process | Where-Object {
+                    ($_.Name -eq "codex.exe" -or $_.Name -eq "node.exe") -and
+                    $_.CommandLine -match "(codex\.js|codex\\codex\.exe)\s+resume"
+                }
+            }
+
+            $codexProcesses |
+                Where-Object { $_.ProcessId -ne $PID } |
+                Sort-Object ProcessId -Unique |
+                ForEach-Object {
+                    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                }
+
+            Start-Sleep -Seconds 2
+        } else {
+            Write-Log "preserve_running_codex=true"
+        }
     }
 
     Invoke-NodeScript -Arguments @("repair-codex-mimo.cjs")
@@ -204,14 +213,18 @@ try {
         Restart-MimoProxy
     }
 
-    if ($NoRestart) {
-        Write-Log "restart_skipped=true"
+    if (-not $shouldLaunch) {
+        Write-Log "launch_skipped=true"
         return
     }
 
-    Write-Log "Restarting Codex Desktop so the provider binding reloads..."
+    if ($shouldRestart) {
+        Write-Log "Restarting Codex Desktop so the provider binding reloads..."
+    } else {
+        Write-Log "Opening or focusing Codex Desktop without closing existing sessions..."
+    }
     Start-CodexDesktop -LaunchTarget $launchTarget
-    Write-Log "restarted=true"
+    Write-Log "launched=true"
 } finally {
     Pop-Location
 }

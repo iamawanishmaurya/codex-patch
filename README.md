@@ -68,6 +68,10 @@ Verified on this machine on 2026-05-04:
   other project chats on their existing provider.
 - Single-thread switches are opt-in with `-CurrentOnly` or `-Thread <id>`.
   Whole-machine bulk rewrites are opt-in with `-AllProjectThreads`.
+- `codex-gui` no longer closes an already-running Codex Desktop window by
+  default. It patches state, starts or focuses Codex Desktop, and preserves the
+  existing main `Codex.exe` process. Use `-Restart` only when you intentionally
+  want the old close-and-reopen behavior.
 - A no-restart switch verification synced all 4 visible project chats to
   `gpt-5.5/openai`, then back to `mimo-v2.5-pro/cmp_1777839123484_1`; SQLite
   and rollout metadata were clean in both directions.
@@ -320,7 +324,7 @@ codex-gui gpt55 --verbose
 ```
 
 The launcher also accepts CLI-style flags such as `--logs`, `--no-restart`,
-`--current-only`, `--project-threads`, `--all-project-threads`,
+`--restart`, `--current-only`, `--project-threads`, `--all-project-threads`,
 `--thread <id>`, and `--plain`.
 
 Use `codex-gui mimo -CurrentOnly` when you intentionally want to switch only
@@ -328,6 +332,10 @@ the current/latest thread row.
 
 Use `codex-gui mimo -AllProjectThreads` only when you intentionally want to
 bulk-migrate visible GUI chats to the same provider.
+
+Use `codex-gui mimo -Restart` only when you intentionally want to close and
+reopen Codex Desktop after patching the provider state. Normal `codex-gui`
+runs preserve the existing Desktop process.
 
 One-shot `codex exec ...` verification runs are stored with `source=exec`.
 Codex Desktop does not show those in the normal GUI chat list, so the
