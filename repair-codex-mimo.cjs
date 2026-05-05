@@ -146,6 +146,54 @@ function ensureProxy() {
     /data: \[\{ id: DEFAULT_MODEL, object: "model", created: nowSeconds\(\), owned_by: "mimo" \}\],/,
     `data: Array.from(SUPPORTED_MODELS).map((id) => ({ id, object: "model", created: nowSeconds(), owned_by: "xiaomi" })),`,
   );
+  if (!proxy.includes("function sendSseComment(res, comment)")) {
+    proxy = proxy.replace(
+      /function sendSse\(res, event, data\) \{[\s\S]*?\n\}/,
+      (match) => `${match}
+
+function sendSseComment(res, comment) {
+  if (!res.writableEnded) {
+    res.write(\`: \${comment}\\n\\n\`);
+  }
+}`,
+    );
+  }
+  proxy = proxy.replace(
+    /if \(message\?\.content\) \{\s*output\.push\(\{([\s\S]*?)content: \[\{ type: "output_text", text: stringifyContent\(message\.content\), annotations: \[\] \}\],/,
+    `const content = message?.content || message?.reasoning_content;
+  if (content) {
+    output.push({$1content: [{ type: "output_text", text: stringifyContent(content), annotations: [] }],`,
+  );
+  proxy = proxy.replace(
+    /const content = stringifyContent\(message\.content\);/,
+    `const content = stringifyContent(message.content || message.reasoning_content);`,
+  );
+  proxy = proxy.replace(
+    /if \(delta\.content\) \{\s*emitTextDelta\(res, state, delta\.content\);\s*\}/,
+    `if (delta.content) {
+        emitTextDelta(res, state, delta.content);
+      } else if (delta.reasoning_content) {
+        sendSseComment(res, "mimo reasoning");
+      }`,
+  );
+  if (!proxy.includes("const keepalive = setInterval(() => sendSseComment(res, \"mimo keepalive\"), 15000);")) {
+    proxy = proxy.replace(
+      /sendSse\(res, "response\.created", \{ response: createdResponse \}\);\s*\n/,
+      `sendSse(res, "response.created", { response: createdResponse });
+
+  const keepalive = setInterval(() => sendSseComment(res, "mimo keepalive"), 15000);
+  try {
+`,
+    );
+    proxy = proxy.replace(
+      /(\s*)finishStream\(res, state, usage\);\s*\n\}/,
+      `$1finishStream(res, state, usage);
+  } finally {
+    clearInterval(keepalive);
+  }
+}`,
+    );
+  }
 
   fs.writeFileSync(proxyPath, proxy, "utf8");
   console.log("proxy_updated=true");

@@ -10,6 +10,8 @@ param(
 
     [switch] $CurrentOnly,
 
+    [switch] $AllProjectThreads,
+
     [switch] $List,
 
     [switch] $Login,
@@ -75,6 +77,7 @@ function Import-LongArguments {
             "--no-restart" { $script:NoRestart = $true; continue }
             "--kill-running-sessions" { $script:KillRunningSessions = $true; continue }
             "--current-only" { $script:CurrentOnly = $true; continue }
+            "--all-project-threads" { $script:AllProjectThreads = $true; continue }
             "--list" { $script:List = $true; continue }
             "--login" { $script:Login = $true; continue }
             "--help" { $script:Help = $true; continue }
@@ -147,7 +150,8 @@ function Show-Usage {
     Write-Host "  -NoRestart            Switch saved state only; do not relaunch Codex Desktop."
     Write-Host "  -KillRunningSessions  Also stop Codex resume/session helper processes."
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
-    Write-Host "  -CurrentOnly          Switch only the current/latest thread, not all project chats."
+    Write-Host "  -CurrentOnly          Switch only the current/latest thread row."
+    Write-Host "  -AllProjectThreads    Switch every visible GUI chat across projects."
     Write-Host "  -List                 Show model choices."
     Write-Host "  -Login                Interactive provider/API setup and model picker."
     Write-Host "  -VerboseLogs          Show raw repair/switch logs."
@@ -439,6 +443,10 @@ if ($List) {
     exit 0
 }
 
+if ($CurrentOnly -and $AllProjectThreads) {
+    throw "-CurrentOnly and -AllProjectThreads cannot be used together."
+}
+
 if (-not (Test-Path -LiteralPath $HardSwitchScript)) {
     throw "Missing hard switch helper: $HardSwitchScript"
 }
@@ -473,7 +481,7 @@ if ($NoRestart) {
 if ($KillRunningSessions) {
     $switchParams.KillRunningSessions = $true
 }
-if (-not $CurrentOnly -and -not $Thread) {
+if ($AllProjectThreads -and -not $Thread) {
     $switchParams.AllProjectThreads = $true
 }
 if ($VerboseLogs) {

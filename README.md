@@ -57,11 +57,14 @@ Verified on this machine on 2026-05-04:
 - The local proxy `/v1/models` route now reports all four Codex-ready Xiaomi
   models, and direct proxy tests confirmed `mimo-v2.5-pro` and `mimo-v2.5` are
   forwarded as their selected upstream model slugs.
-- The latest GUI project repair moved all 4 visible `mimo` project chats to
-  `mimo-v2.5-pro/cmp_1777839123484_1`.
 - The GUI switch now updates both `state_5.sqlite` and each selected thread's
   rollout JSONL metadata so Codex Desktop does not rebuild mixed GPT/MiMo
   sidebar state on launch.
+- The original coexistence bug was that `codex-gui` defaulted to switching all
+  visible GUI chats unless `-CurrentOnly` was passed. That prevented keeping a
+  GPT session and a MiMo session open side by side.
+- The launcher now defaults to switching only the current/latest thread row.
+  Bulk rewrites are opt-in with `-AllProjectThreads`.
 - A no-restart switch verification synced all 4 visible project chats to
   `gpt-5.5/openai`, then back to `mimo-v2.5-pro/cmp_1777839123484_1`; SQLite
   and rollout metadata were clean in both directions.
@@ -281,9 +284,9 @@ codex-gui
 ```
 
 `codex-gui` shows a colored menu, switches the selected model/provider pair,
-and launches a fresh Codex Desktop session. By default it switches visible
-non-`exec` GUI chats together, so sidebar groups do not keep mixed providers.
-It also accepts direct model aliases:
+and launches a fresh Codex Desktop session. It now defaults to switching only
+the current/latest thread so GPT and MiMo chats can coexist. It also accepts
+direct model aliases:
 
 ```powershell
 codex-gui gpt-5.5
@@ -313,10 +316,10 @@ codex-gui gpt55 --verbose
 ```
 
 The launcher also accepts CLI-style flags such as `--logs`, `--no-restart`,
-`--current-only`, `--thread <id>`, and `--plain`.
+`--current-only`, `--all-project-threads`, `--thread <id>`, and `--plain`.
 
-Use `codex-gui mimo -CurrentOnly` only when you intentionally want to switch
-just the current/latest thread row.
+Use `codex-gui mimo -AllProjectThreads` only when you intentionally want to
+bulk-migrate visible GUI chats to the same provider.
 
 One-shot `codex exec ...` verification runs are stored with `source=exec`.
 Codex Desktop does not show those in the normal GUI chat list, so the
