@@ -165,7 +165,7 @@ function Show-Usage {
     Write-Host "  -KillRunningSessions  With -Restart, also stop Codex resume/session helper processes."
     Write-Host "  -Thread <id>          Switch a specific Codex Desktop thread row."
     Write-Host "  -CurrentOnly          Switch only the current/latest thread row."
-    Write-Host "  -ProjectThreads       Switch visible chats in this project only. This is the default."
+    Write-Host "  -ProjectThreads       Also switch visible chats in this project."
     Write-Host "  -AllProjectThreads    Switch every visible GUI chat across projects."
     Write-Host "  -List                 Show model choices."
     Write-Host "  -Login                Interactive provider/API setup and model picker."
@@ -522,6 +522,9 @@ $switchParams = @{ Model = $SelectedModel }
 if ($Thread) {
     $switchParams.Thread = $Thread
 }
+if (-not $Thread -and -not $CurrentOnly -and -not $ProjectThreads -and -not $AllProjectThreads) {
+    $switchParams.NoThreadSwitch = $true
+}
 if ($NoRestart -or $Terminal) {
     $switchParams.NoRestart = $true
 }
@@ -531,12 +534,11 @@ if ($Restart) {
 if ($KillRunningSessions) {
     $switchParams.KillRunningSessions = $true
 }
-if (-not $Thread -and -not $CurrentOnly) {
-    if ($AllProjectThreads) {
-        $switchParams.AllProjectThreads = $true
-    } else {
-        $switchParams.ProjectThreads = $true
-    }
+if ($ProjectThreads -and -not $Thread) {
+    $switchParams.ProjectThreads = $true
+}
+if ($AllProjectThreads -and -not $Thread) {
+    $switchParams.AllProjectThreads = $true
 }
 if ($VerboseLogs) {
     $switchParams.VerboseLogs = $true

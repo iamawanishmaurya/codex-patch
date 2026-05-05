@@ -14,6 +14,8 @@ param(
 
     [switch] $AllProjectThreads,
 
+    [switch] $NoThreadSwitch,
+
     [switch] $VerboseLogs
 )
 
@@ -235,17 +237,21 @@ try {
 
     Invoke-NodeScript -Arguments @("set-codex-default-model.cjs", "--model", $Model)
 
-    $switchArgs = @("switch-codex-gui-model.cjs", "--model", $Model)
-    if ($Thread) {
-        $switchArgs += @("--thread", $Thread)
+    if ($NoThreadSwitch) {
+        Write-Log "thread_switch=skipped"
+    } else {
+        $switchArgs = @("switch-codex-gui-model.cjs", "--model", $Model)
+        if ($Thread) {
+            $switchArgs += @("--thread", $Thread)
+        }
+        if ($ProjectThreads -and -not $Thread) {
+            $switchArgs += "--project-threads"
+        }
+        if ($AllProjectThreads -and -not $Thread) {
+            $switchArgs += "--all-project-threads"
+        }
+        Invoke-NodeScript -Arguments $switchArgs
     }
-    if ($ProjectThreads -and -not $Thread) {
-        $switchArgs += "--project-threads"
-    }
-    if ($AllProjectThreads -and -not $Thread) {
-        $switchArgs += "--all-project-threads"
-    }
-    Invoke-NodeScript -Arguments $switchArgs
 
     if ($selectedProvider.id -eq "xiaomi") {
         Restart-MimoProxy

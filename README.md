@@ -14,7 +14,7 @@ Not supported model gpt-5.5
 
 ## Current Verified State
 
-Verified on this machine on 2026-05-04:
+Verified on this machine on 2026-05-05:
 
 - Codex CLI was upgraded from `0.120.0` to `0.128.0`.
 - `codex exec --model gpt-5.5 ...` routed through `openai` and returned
@@ -63,11 +63,11 @@ Verified on this machine on 2026-05-04:
 - The original coexistence bug was that `codex-gui` defaulted to switching all
   visible GUI chats across every project unless `-CurrentOnly` was passed. That
   prevented keeping GPT and MiMo work separated by project.
-- The launcher now defaults to switching visible chats only in the current
-  project folder. This keeps the current project sidebar complete while leaving
-  other project chats on their existing provider.
-- Single-thread switches are opt-in with `-CurrentOnly` or `-Thread <id>`.
-  Whole-machine bulk rewrites are opt-in with `-AllProjectThreads`.
+- The launcher now defaults to no saved-thread rewrite. It updates the selected
+  default model/provider pair, then opens a fresh Desktop window or terminal
+  session. This is the mode to use when GPT and MiMo should run side by side.
+- Saved-thread switches are opt-in with `-CurrentOnly`, `-Thread <id>`,
+  `-ProjectThreads`, or `-AllProjectThreads`.
 - `codex-gui` no longer closes an already-running Codex Desktop window by
   default. It patches state, then uses Codex Desktop's verified
   `Ctrl+Shift+N` new-window shortcut when Desktop is already running. Use
@@ -80,6 +80,14 @@ Verified on this machine on 2026-05-04:
   duplicating a stale active chat route.
 - For concurrent GPT/MiMo work in terminals instead of Desktop windows, use
   `codex-gui <model> -Terminal`.
+- PowerShell spawning was verified through `cmd.exe /d /c codex ...` because
+  `codex` resolves to the npm PowerShell shim `codex.ps1`; direct
+  `Start-Process -FilePath codex` fails on Windows with `%1 is not a valid
+  Win32 application`.
+- The dual-model smoke helper `.\test-dual-codex-models.ps1` starts GPT-5.5 and
+  MiMo concurrently through PowerShell. The latest run proved MiMo returned
+  `DUAL_MIMO_OK`, while GPT-5.5 routed to OpenAI and hit the account usage
+  limit instead of any MiMo `Not supported model` or upstream-routing error.
 - A no-restart switch verification synced all 4 visible project chats to
   `gpt-5.5/openai`, then back to `mimo-v2.5-pro/cmp_1777839123484_1`; SQLite
   and rollout metadata were clean in both directions.
@@ -298,11 +306,10 @@ The easiest path is the terminal command:
 codex-gui
 ```
 
-`codex-gui` shows a colored menu, switches the selected model/provider pair,
-and launches a fresh Codex Desktop session. It now defaults to switching
-visible chats in the current project folder only, so that project's sidebar
-stays complete without rewriting every project on the machine. It also accepts
-direct model aliases:
+`codex-gui` shows a colored menu, switches the selected default
+model/provider pair, and launches a fresh Codex Desktop session. It now
+defaults to leaving existing saved chat rows alone, which is the safe mode for
+running GPT and MiMo side by side. It also accepts direct model aliases:
 
 ```powershell
 codex-gui gpt-5.5
@@ -338,6 +345,9 @@ The launcher also accepts CLI-style flags such as `--logs`, `--no-restart`,
 Use `codex-gui mimo -CurrentOnly` when you intentionally want to switch only
 the current/latest thread row.
 
+Use `codex-gui mimo -ProjectThreads` when you intentionally want to sync the
+visible non-`exec` chats in this project folder to the same provider.
+
 Use `codex-gui mimo -AllProjectThreads` only when you intentionally want to
 bulk-migrate visible GUI chats to the same provider.
 
@@ -352,6 +362,27 @@ the running Desktop app to open a new window and start a fresh chat.
 Use `codex-gui mimo -Terminal` or `codex-gui gpt-5.5 -Terminal` when you need
 another live Codex terminal/TUI session instead of a Desktop window.
 
+For a non-interactive concurrent smoke test from PowerShell, run:
+
+```powershell
+.\test-dual-codex-models.ps1
+```
+
+That script starts both model commands through `cmd.exe /d /c codex ...`,
+because `codex` is an npm PowerShell shim on this machine. It writes full logs
+to `%TEMP%\codex-dual-model-*` and prints a compact JSON summary.
+
+Agent-S was cloned for GUI-control investigation at:
+
+```text
+C:\Users\water\Desktop\Opencode\Agent-S
+```
+
+It was not required for the Codex launcher fix. Agent-S also needs a separate
+grounding model endpoint such as UI-TARS before it can autonomously control the
+Windows GUI, so the repeatable verification path in this repo uses local
+PowerShell and Codex state checks.
+
 One-shot `codex exec ...` verification runs are stored with `source=exec`.
 Codex Desktop does not show those in the normal GUI chat list, so the
 project-wide switch intentionally targets visible non-`exec` project chats.
@@ -361,10 +392,10 @@ of relying on direct `C:\Program Files\WindowsApps` directory access. That
 avoids the `Could not locate Codex.exe under C:\Program Files\WindowsApps`
 failure on systems where Windows blocks listing that folder.
 
-The hard switch stops Codex Desktop before writing `state_5.sqlite`. If Desktop
-stays open while the database is edited, the live session can write its old
-model/provider back and the sidebar may show only the one chat that kept the
-new model.
+With `-Restart`, the hard switch stops Codex Desktop before writing
+`state_5.sqlite`, then reopens it so the active provider binding reloads.
+Normal `codex-gui <model>` runs preserve the existing Desktop process and ask
+Codex Desktop for a new window instead.
 
 Codex Desktop can also rebuild sidebar metadata from per-thread rollout JSONL
 files under `C:\Users\water\.codex\sessions`. The switch helper updates
@@ -380,8 +411,8 @@ cross-provider changes:
 .\hard-switch-codex-gui-model.ps1 -Model gpt-5.5
 ```
 
-Use `-NoRestart` only for a dry run. The restart is the important part for the
-GUI, because the live session keeps its provider in memory.
+Use `-Restart` when you need to repair an already-open cross-provider thread.
+Use the normal no-flag launcher when you want a fresh concurrent session.
 
 After switching to MiMo:
 
@@ -497,7 +528,7 @@ node watch-codex-provider-drift.cjs
 After repairing a live Desktop thread, fully close and reopen Codex Desktop so
 the running session reloads the saved provider binding.
 
-## Global Sync Verification
+## Bulk Sync Verification
 
 The original switcher only synchronized threads whose `cwd` matched the current
 folder, which meant it touched 4 `mimo` threads and left other sidebar projects
@@ -517,6 +548,10 @@ That means choosing GPT-5.5 now updates every active GUI chat to:
 model=gpt-5.5
 model_provider=openai
 ```
+
+That bulk rewrite is no longer the default launcher behavior. Use
+`-AllProjectThreads` only when you intentionally want every visible GUI chat to
+move to the same provider.
 
 ## Known Caveats
 
